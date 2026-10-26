@@ -1,0 +1,23 @@
+{
+  "name": "copieur-universel",
+  "displayName": "Copieur universel",
+  "version": "0.1.0",
+  "description": "« Universal Modder, mais pour copier des applis » : recrée en local, fidèlement, des applis web et des logiciels de bureau (Electron, WebView2, Windows natif) à partir de ce qu'on observe — capture en lecture seule anonymisée, construction multi-agents, double vérification. Usage personnel, contenu en français.",
+  "author": {
+    "name": "enzo"
+  },
+  "license": "MIT",
+  "keywords": [
+    "copier",
+    "cloner",
+    "recréer",
+    "clone",
+    "replica",
+    "interface",
+    "appli-web",
+    "logiciel",
+    "electron",
+    "windows",
+    "francais"
+  ]
+}

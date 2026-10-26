@@ -1,0 +1,87 @@
+/*
+ * shell-base.css — styles GÉNÉRIQUES de la coque d'un clone (plugin copieur-universel, skill reconstruire-appli).
+ * À copier TEL QUEL dans <CLONE>/assets/shell-base.css, chargé AVANT assets/shell.css (propre à l'appli).
+ *
+ * Rien ici n'imite une appli précise : l'aspect de l'original (couleurs, polices, dégradés, classes
+ * personnalisées relevées dans styles.css de la capture) va dans assets/shell.css. Pour ajuster les
+ * éléments créés par la coque (infobulle, squelette, barre fine), redéfinir les variables ci-dessous
+ * dans assets/shell.css, par exemple :
+ *   :root { --tip-bg: rgb(17, 25, 40); --tip-radius: 8px; --tip-pad: 8px 12px; --tip-arrow-color: #373737; }
+ */
+:root {
+  /* Infobulle (valeurs par défaut = style rc-tooltip sombre, à caler sur l'original) */
+  --tip-bg: rgb(17, 25, 40);
+  --tip-fg: #fff;
+  --tip-radius: 8px;
+  --tip-pad: 8px 12px;
+  --tip-max: 320px;
+  --tip-font-size: 14px;
+  --tip-line: 20px;
+  --tip-weight: 500;
+  --tip-shadow: 0 0 4px rgba(0, 0, 0, 0.17);
+  --tip-arrow: 5px;
+  --tip-arrow-color: var(--tip-bg);
+  --tip-gap: 9px;          /* distance entre l'élément et l'infobulle (lue par shell-base.js) */
+  --tip-z: 1000;
+  /* Squelette de chargement (style react-loading-skeleton) */
+  --skeleton-base: #ebebeb;
+  --skeleton-shine: #f5f5f5;
+  --skeleton-radius: 4px;
+  /* Barre de défilement fine */
+  --scrollbar-size: 4px;
+  --scrollbar-thumb: rgb(229, 231, 235);
+  --scrollbar-track: transparent;
+  /* Menus flottants (data-float) */
+  --shell-menu-z: 1000;
+}
+
+/* Espace réservé <svg data-icon> avant hydratation : jamais 300×150 px (specificité nulle : les classes gagnent) */
+:where(svg[data-icon]) { width: 1em; height: 1em; }
+
+/* ---------- Infobulle (créée par shell-base.js : #shell-tooltip) ---------- */
+#shell-tooltip { position: fixed; left: 0; top: 0; z-index: var(--tip-z); pointer-events: none; opacity: 0; transition: opacity .12s; }
+#shell-tooltip.show { opacity: 1; }
+#shell-tooltip .shell-tip-inner {
+  background: var(--tip-bg); color: var(--tip-fg); border-radius: var(--tip-radius); padding: var(--tip-pad);
+  max-width: min(calc(100vw - 32px), var(--tip-max)); box-shadow: var(--tip-shadow);
+}
+#shell-tooltip .shell-tip-text { margin: 0; font-size: var(--tip-font-size); line-height: var(--tip-line); font-weight: var(--tip-weight); overflow-wrap: break-word; }
+#shell-tooltip .shell-tip-arrow { position: absolute; width: 0; height: 0; border: var(--tip-arrow) solid transparent; }
+#shell-tooltip[data-place="top"] .shell-tip-arrow { bottom: calc(-2 * var(--tip-arrow)); border-top-color: var(--tip-arrow-color); transform: translateX(-50%); }
+#shell-tooltip[data-place="bottom"] .shell-tip-arrow { top: calc(-2 * var(--tip-arrow)); border-bottom-color: var(--tip-arrow-color); transform: translateX(-50%); }
+#shell-tooltip[data-place="left"] .shell-tip-arrow { right: calc(-2 * var(--tip-arrow)); border-left-color: var(--tip-arrow-color); transform: translateY(-50%); }
+#shell-tooltip[data-place="right"] .shell-tip-arrow { left: calc(-2 * var(--tip-arrow)); border-right-color: var(--tip-arrow-color); transform: translateY(-50%); }
+
+/* ---------- Squelette de chargement ---------- */
+.skeleton { background-color: var(--skeleton-base); border-radius: var(--skeleton-radius); position: relative; overflow: hidden; }
+.skeleton::after {
+  content: ''; position: absolute; inset: 0; background-repeat: no-repeat;
+  background-image: linear-gradient(90deg, var(--skeleton-base), var(--skeleton-shine), var(--skeleton-base));
+  transform: translateX(-100%); animation: shell-skeleton 1.5s ease-in-out infinite;
+}
+@keyframes shell-skeleton { 100% { transform: translateX(100%); } }
+
+/* ---------- Barres de défilement ---------- */
+/* Fine : Chromium ignore ::-webkit-scrollbar dès que scrollbar-width est défini ; le repli standard
+   (scrollbar-width / scrollbar-color) est donc réservé aux navigateurs sans ::-webkit-scrollbar (Firefox). */
+.scrollbar-thin::-webkit-scrollbar { width: var(--scrollbar-size); height: var(--scrollbar-size); background: var(--scrollbar-track); }
+.scrollbar-thin::-webkit-scrollbar-track { background: var(--scrollbar-track); }
+.scrollbar-thin::-webkit-scrollbar-thumb { background-color: var(--scrollbar-thumb); border: none; border-radius: calc(var(--scrollbar-size) / 2); }
+@supports not selector(::-webkit-scrollbar) {
+  .scrollbar-thin { scrollbar-width: thin; scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track); }
+}
+/* Masquée (le contenu défile toujours) */
+.scrollbar-none::-webkit-scrollbar { display: none; }
+@supports not selector(::-webkit-scrollbar) {
+  .scrollbar-none { scrollbar-width: none; }
+}
+
+/* ---------- État initial sans animation (Shell.noTransition) ---------- */
+.shell-no-transition, .shell-no-transition * { transition: none !important; }
+
+/* ---------- Mode « logiciel de bureau » (Shell.CONFIG.bureau = true → <html class="shell-bureau">) ---------- */
+.shell-bureau body { -webkit-user-select: none; user-select: none; cursor: default; }
+.shell-bureau input, .shell-bureau textarea, .shell-bureau select, .shell-bureau [contenteditable="true"], .shell-bureau .selectable {
+  -webkit-user-select: text; user-select: text; cursor: auto;
+}
+.shell-bureau img { -webkit-user-drag: none; }

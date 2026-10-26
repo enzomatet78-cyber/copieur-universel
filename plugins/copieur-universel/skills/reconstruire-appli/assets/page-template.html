@@ -1,0 +1,101 @@
+<!doctype html>
+<!--
+  Gabarit de page d'un clone — plugin copieur-universel, skill reconstruire-appli.
+  Copier vers <CLONE>/app/<route>/index.html (appli web) ou <CLONE>/ecrans/<ecran>/index.html (logiciel de bureau),
+  puis remplacer chaque {{…}} et le contenu de <main>. Règles : references/conventions.md ; fidélité : references/fidelite.md.
+  Ce qui est commun à toutes les pages (navigation, en-tête, menu utilisateur…) ne s'écrit PAS ici mais dans
+  /assets/shell.js (coque propre à l'appli) : la page ne fournit que les emplacements #nav-slot / #topbar-slot.
+  lang = langue d'affichage de l'original (celle de la capture).
+-->
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- document.title EXACT de l'original (c'est aussi le titre de la fenêtre pour un logiciel de bureau) -->
+  <title>{{TITRE EXACT}}</title>
+  <!-- Icône : URL absolue publique de l'original (ex. https://app.exemple.com/favicon.ico) ou /assets/favicon.png.
+       « data:, » évite une requête 404 tant qu'elle n'est pas renseignée. -->
+  <link rel="icon" href="data:,">
+  <!-- Police de l'original (styles.css de la capture). Logiciel Windows : supprimer ces 3 lignes et utiliser
+       « Segoe UI Variable Text », « Segoe UI » dans shell.css. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Tailwind v3 (Play CDN). « ?plugins=forms » : à garder seulement si l'original stylise ses champs, cases et
+       radios avec le plugin forms (sinon ils changent de bordure et de taille) — fidelite.md §2.
+       Original en Tailwind v4 : fidelite.md §3. SANS Tailwind (logiciel natif, Electron à CSS sémantique comme
+       VS Code) : supprimer ces 2 lignes, recopier les règles de styles.css dans shell.css et y définir
+       .hidden { display: none } — fidelite.md §3 et §11 (variante « bureau »). -->
+  <script src="https://cdn.tailwindcss.com/3.4.16?plugins=forms"></script>
+  <script src="/assets/tailwind-config.js"></script>
+  <!-- Logiciel de bureau : couleur de la barre de titre de la fenêtre Edge --app (ex. thème sombre) :
+  <meta name="theme-color" content="#202020"> -->
+  <!-- Jeu d'icônes Tabler de shell-base.js inutile si l'original ne l'utilise pas (logiciel, autre jeu) :
+  <script>window.SHELL_CONFIG = { tabler: false };</script> -->
+
+  <link rel="stylesheet" href="/assets/shell-base.css">
+  <link rel="stylesheet" href="/assets/shell.css">
+  <!-- éventuel : <link rel="stylesheet" href="/assets/sections/{{section}}.css"> -->
+  <!-- éventuel : <style> propre à la page (classes personnalisées n'existant que sur cette page) </style> -->
+</head>
+<!-- data-nav : clé de l'élément actif de la navigation commune (liste dans le GUIDE du projet) -->
+<body data-nav="{{CLE_NAV}}">
+<!-- Disposition générale : à remplacer par celle de la PAGE DE RÉFÉRENCE validée (mêmes classes que l'original).
+     Garder les identifiants : #nav-slot, #topbar-slot (si utile), #main = conteneur qui défile (mesures, infobulles). -->
+<div id="app" class="flex h-screen overflow-hidden">
+  <!-- Navigation commune (barre latérale, rail…) : rendue par /assets/shell.js — laisser vide.
+       Si la coque d'origine est elle-même une enveloppe stylée par son id (#sidebar-wrap { width:240px }, enfant
+       direct du conteneur flex), mettre class="contents" : #nav-slot disparaît de la mise en page et l'enveloppe
+       recopiée reste l'enfant direct, comme dans l'original. -->
+  <div id="nav-slot" class="shrink-0"></div>
+  <div id="main-wrap" class="relative flex-1 min-w-0 flex flex-col">
+    <!-- Barre supérieure commune éventuelle : rendue par /assets/shell.js — laisser vide ou supprimer -->
+    <div id="topbar-slot"></div>
+    <main id="main" class="flex-1 overflow-y-auto">
+      <!-- ===== CONTENU DE LA PAGE : structure, classes et textes recopiés du DOM capturé (dom-*.html) =====
+           Icônes : <svg data-icon="nom" class="w-4 h-4 text-gray-500"></svg>
+           Infobulle : data-tip-text="texte" ou data-tip="id-template"
+           Menu : <button data-menu="menu-x"> + <div id="menu-x" class="hidden …">
+           Modale : <button data-modal-open="modale-x"> + calque #modale-x en fin de body
+           Onglets : <div data-tabs data-active-class="…" data-inactive-class="…"><button data-tab="a">…</button>…<div data-tab-panel="a">
+           Dépliant : <button data-toggle="panneau-x" [data-toggle-group="g"]> + <div id="panneau-x" class="hidden"> -->
+      <div class="p-6">
+        <h1 class="text-xl font-semibold">{{Titre de la page}}</h1>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- Calques hors flux, comme les « portails » de l'original : modales, tiroirs, menus flottants (data-float),
+     contenus d'infobulles. Exemples :
+<div id="modale-x" class="hidden fixed inset-0 z-50" role="dialog" aria-modal="true" aria-labelledby="modale-x-titre">
+  <div class="absolute inset-0 bg-black/50" data-modal-backdrop></div>
+  <div class="relative …"> … <button type="button" data-modal-close>Annuler</button></div>
+</div>
+<template id="tip-x"><p class="text-sm font-medium text-white">…</p></template>
+-->
+
+<script src="/assets/fake-data.js"></script>
+<script src="/assets/shell-base.js"></script>
+<script src="/assets/shell.js"></script>
+<!-- éventuel : <script src="/assets/sections/{{section}}.js"></script> -->
+<script>
+(function () {
+  'use strict';
+  var esc = Shell.esc, html = Shell.html, icon = Shell.icon;
+
+  /* 1. Données de la page : valeurs relevées (agrégats, réglages du compte) ou fictives déterministes,
+        ex. var r = FAKE.rng('{{route}}'); — jamais Math.random() ni new Date() sans argument. */
+
+  /* 2. Rendu du contenu dynamique (listes, tableaux, graphiques SVG) :
+        document.getElementById('…').innerHTML = html`…${valeur}…`; */
+
+  /* 3. Interactions propres à la page (le reste est déclaratif : data-menu, data-modal-open, data-tabs,
+        data-toggle, data-switch, data-tip-text). Aucune requête réseau, pas d'alert()/confirm(). */
+  Shell.ready(function () {
+    // code exécuté quand la coque a tout hydraté (icônes, liaisons, onglets) : <html data-shell="ready">
+  });
+})();
+</script>
+</body>
+</html>

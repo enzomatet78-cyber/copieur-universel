@@ -1,0 +1,124 @@
+<!doctype html>
+<!--
+  glyphes.html — identifier les icônes d'un logiciel Windows dans une police d'icônes installée (Segoe Fluent
+  Icons sous Windows 11, Segoe MDL2 Assets sous Windows 10) par corrélation avec des zones d'une capture.
+  Outil du plugin copieur-universel (skills capture-bureau et reconstruire-appli, fidelite.md §11).
+
+  Mode d'emploi :
+  1. Copier ce fichier dans le dossier de travail (PAS dans le clone), là d'où les images de capture sont
+     accessibles par un chemin relatif ; servir ce dossier sur un port libre :
+       py -m http.server 8794 --bind 127.0.0.1 --directory "<TRAVAIL>"
+     (en file://, le navigateur interdit de lire les pixels de l'image).
+  2. Ouvrir (navigateur intégré, ou Chrome/Edge headless + cdp_eval.py) :
+       http://127.0.0.1:8794/glyphes.html?image=capture/u/fenetre-principale/01-fenetre.png
+         &cibles=gras:652,56,34,32;italique:692,56,34,32
+     cibles = nom:x,y,largeur,hauteur en pixels de l'image (une zone par icône, avec un peu de fond autour).
+     Options : police=Segoe%20MDL2%20Assets ; plages=E700-E9FF,F000-F8FF ; n=5 (candidats par icône).
+  3. Lire le tableau, ou en CDP : eval --expr "__glyphes()" (renvoie un JSON quand le calcul est fini).
+  Le score est une corrélation (1 = identique) : testé, le bon glyphe obtient 0,8 à 0,9 et figure parmi les 3
+  premiers, à côté de glyphes voisins (« plus » : E710, E948, F8AA) qu'il faut départager À L'ŒIL sur le
+  tableau. Sous ~0,55, l'icône n'est sans doute pas dans la police (la recadrer : fidelite.md §8).
+  Lecture seule : rien n'est envoyé nulle part.
+-->
+<html lang="fr"><head><meta charset="utf-8"><title>Identification de glyphes</title><link rel="icon" href="data:,">
+<style>
+  body { background: #222; color: #ddd; font: 13px "Segoe UI", system-ui, sans-serif; margin: 16px; }
+  .g { font-size: 20px; }
+  td { padding: 3px 10px; vertical-align: middle; } th { text-align: left; padding: 3px 10px; color: #aaa; }
+  canvas { image-rendering: pixelated; background: #333; }
+  .bon { color: #8fd18f; } .moyen { color: #e5c46b; } .faible { color: #e58b8b; }
+</style>
+</head><body>
+<p id="etat">Calcul en cours…</p>
+<div id="out"></div>
+<script>
+(function () {
+  'use strict';
+  var Q = new URLSearchParams(location.search);
+  var POLICE = Q.get('police') || 'Segoe Fluent Icons';
+  var N = 24, TOP = Math.max(1, parseInt(Q.get('n') || '5', 10));
+  var PLAGES = (Q.get('plages') || 'E700-F8FF').split(',').map(function (p) {
+    var a = p.split('-'); return [parseInt(a[0], 16), parseInt(a[1] || a[0], 16)];
+  });
+  var CIBLES = (Q.get('cibles') || '').split(';').filter(Boolean).map(function (c) {
+    var i = c.indexOf(':'), v = c.slice(i + 1).split(',').map(Number);
+    return { nom: c.slice(0, i), x: v[0], y: v[1], l: v[2], h: v[3] };
+  });
+  var resultat = null, attente = [];
+  window.__glyphes = function () {
+    return resultat ? Promise.resolve(JSON.stringify(resultat)) : new Promise(function (ok) { attente.push(ok); });
+  };
+  function fin(r) { resultat = r; document.title = 'fini'; attente.forEach(function (f) { f(JSON.stringify(r)); }); }
+  function erreur(msg) { document.getElementById('etat').textContent = msg; fin({ erreur: msg }); }
+
+  function charger(src) { return new Promise(function (ok, ko) { var i = new Image(); i.onload = function () { ok(i); }; i.onerror = function () { ko(new Error('image illisible : ' + src)); }; i.src = src; }); }
+  function masque(d, w, h, fond) {             // intensité = écart au fond (0..1)
+    var m = new Float32Array(w * h);
+    for (var k = 0; k < w * h; k++) { var e = Math.abs(d[k * 4] - fond[0]) + Math.abs(d[k * 4 + 1] - fond[1]) + Math.abs(d[k * 4 + 2] - fond[2]); m[k] = Math.min(1, e / 450); }
+    return m;
+  }
+  function boite(m, w, h, s) {
+    var x0 = w, y0 = h, x1 = -1, y1 = -1;
+    for (var y = 0; y < h; y++) for (var x = 0; x < w; x++) if (m[y * w + x] > s) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    return x1 < 0 ? null : [x0, y0, x1 - x0 + 1, y1 - y0 + 1];
+  }
+  function normaliser(m, w, h, b) {            // ré-échantillonne la boîte sur une grille N×N (carrée, centrée)
+    var out = new Float32Array(N * N), s = Math.max(b[2], b[3]), ox = b[0] - (s - b[2]) / 2, oy = b[1] - (s - b[3]) / 2;
+    for (var j = 0; j < N; j++) for (var i = 0; i < N; i++) {
+      var x = Math.floor(ox + (i + 0.5) * s / N), y = Math.floor(oy + (j + 0.5) * s / N);
+      out[j * N + i] = (x >= 0 && y >= 0 && x < w && y < h) ? m[y * w + x] : 0;
+    }
+    return out;
+  }
+  function correl(a, b) {
+    var n = a.length, ma = 0, mb = 0, k; for (k = 0; k < n; k++) { ma += a[k]; mb += b[k]; } ma /= n; mb /= n;
+    var sab = 0, saa = 0, sbb = 0; for (k = 0; k < n; k++) { var x = a[k] - ma, y = b[k] - mb; sab += x * y; saa += x * x; sbb += y * y; }
+    return saa && sbb ? sab / Math.sqrt(saa * sbb) : 0;
+  }
+  (async function () {
+    if (!Q.get('image') || !CIBLES.length) return erreur('Paramètres manquants : ?image=<chemin relatif du PNG>&cibles=nom:x,y,l,h;… (voir le commentaire en tête du fichier).');
+    if (location.protocol === 'file:') return erreur('Ouvrir cette page par un serveur local (py -m http.server …) : en file://, les pixels de l\'image ne sont pas lisibles.');
+    try { await document.fonts.load('40px "' + POLICE + '"'); } catch (e) { /* police absente : vérifiée ci-dessous */ }
+    if (!document.fonts.check('40px "' + POLICE + '"')) return erreur('Police « ' + POLICE + ' » introuvable sur ce poste (Windows 11 : Segoe Fluent Icons ; Windows 10 : Segoe MDL2 Assets).');
+    var img;
+    try { img = await charger(Q.get('image')); } catch (e) { return erreur(e.message); }
+    var cibles = CIBLES.map(function (c) {
+      var cv = document.createElement('canvas'); cv.width = c.l; cv.height = c.h;
+      var g = cv.getContext('2d', { willReadFrequently: true }); g.drawImage(img, c.x, c.y, c.l, c.h, 0, 0, c.l, c.h);
+      var d = g.getImageData(0, 0, c.l, c.h).data, fond = [d[0], d[1], d[2]];   // fond = pixel du coin haut-gauche
+      var m = masque(d, c.l, c.h, fond), b = boite(m, c.l, c.h, 0.25);
+      return { nom: c.nom, zone: [c.x, c.y, c.l, c.h], b: b, v: b ? normaliser(m, c.l, c.h, b) : null, cv: cv, best: [] };
+    });
+    var S = 48, cv = document.createElement('canvas'); cv.width = S * 2; cv.height = S * 2;
+    var g = cv.getContext('2d', { willReadFrequently: true }); g.font = S + 'px "' + POLICE + '"'; g.textBaseline = 'middle'; g.textAlign = 'center';
+    var vus = 0;
+    PLAGES.forEach(function (p) {
+      for (var cp = p[0]; cp <= p[1]; cp++) {
+        g.fillStyle = '#000'; g.fillRect(0, 0, S * 2, S * 2); g.fillStyle = '#fff'; g.fillText(String.fromCharCode(cp), S, S);
+        var d = g.getImageData(0, 0, S * 2, S * 2).data, m = masque(d, S * 2, S * 2, [0, 0, 0]), b = boite(m, S * 2, S * 2, 0.25);
+        if (!b || b[2] < 3) continue; vus++;
+        var v = normaliser(m, S * 2, S * 2, b);
+        cibles.forEach(function (c) {
+          if (!c.v) return;
+          var ra = (b[2] / b[3]) / (c.b[2] / c.b[3]); if (ra > 1.6 || ra < 0.62) return;   // proportions trop différentes
+          var sc = correl(c.v, v); c.best.push([sc, cp]); c.best.sort(function (x, y) { return y[0] - x[0]; }); if (c.best.length > TOP) c.best.pop();
+        });
+      }
+    });
+    function cls(s) { return s >= 0.75 ? 'bon' : s >= 0.55 ? 'moyen' : 'faible'; }
+    var h = '<p>' + vus + ' glyphes non vides de « ' + POLICE + ' » comparés à ' + cibles.length + ' zone(s) de ' + Q.get('image') + '.</p><table><tr><th>icône</th><th>zone</th><th colspan="' + TOP + '">meilleurs glyphes (code, score)</th></tr>';
+    cibles.forEach(function (c, i) {
+      h += '<tr><td>' + c.nom.replace(/</g, '&lt;') + '</td><td id="c' + i + '"></td>' + (c.v ? c.best.map(function (x) {
+        return '<td class="' + cls(x[0]) + '"><span class="g" style="font-family:\'' + POLICE + '\'">&#x' + x[1].toString(16) + ';</span> ' + x[1].toString(16).toUpperCase() + ' (' + x[0].toFixed(2) + ')</td>';
+      }).join('') : '<td class="faible">zone vide (rien ne se détache du fond)</td>') + '</tr>';
+    });
+    document.getElementById('out').innerHTML = h + '</table>';
+    cibles.forEach(function (c, i) { c.cv.style.width = (c.cv.width * 2) + 'px'; document.getElementById('c' + i).appendChild(c.cv); });
+    document.getElementById('etat').textContent = 'Terminé. Vert ≥ 0,75 : candidat probable (départager à l’œil les glyphes voisins) ; rouge < 0,55 : icône sans doute absente de la police (la recadrer dans la capture).';
+    fin({ police: POLICE, image: Q.get('image'), glyphesCompares: vus, icones: cibles.map(function (c) {
+      return { nom: c.nom, zone: c.zone, candidats: c.best.map(function (x) { return { code: 'U+' + x[1].toString(16).toUpperCase(), entite: '&#x' + x[1].toString(16).toUpperCase() + ';', score: Math.round(x[0] * 1000) / 1000 }; }) };
+    }) });
+  })();
+})();
+</script>
+</body></html>

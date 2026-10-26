@@ -1,0 +1,14 @@
+{
+  "name": "copieur-universel",
+  "owner": {
+    "name": "enzo"
+  },
+  "description": "Copieur universel : skills et outils pour recréer en local, fidèlement, des applis web (publiques ou derrière une connexion) et des logiciels de bureau (Electron, WebView2, Windows natif), pour un usage personnel.",
+  "plugins": [
+    {
+      "name": "copieur-universel",
+      "source": "./plugins/copieur-universel",
+      "description": "Recrée en local une appli web ou un logiciel de bureau : cadrage, reconnaissance, capture en lecture seule anonymisée, construction multi-agents, double vérification et livraison (contenu en français)."
+    }
+  ]
+}
