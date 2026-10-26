@@ -4,8 +4,9 @@
 check_links.py — contrôle des pages et des liens internes d'un clone servi en local.
 Plugin copieur-universel, skill verifier-copie. Python 3.8+ STANDARD (aucune dépendance).
 
-  py check_links.py --root <dossier du clone> --base http://localhost:PORT [--out rapport.json]
-  py check_links.py --root <dossier du clone>            (sans --base : contrôle sur disque seulement)
+  python3 check_links.py --root <dossier du clone> --base http://localhost:PORT [--out rapport.json]
+  python3 check_links.py --root <dossier du clone>            (sans --base : contrôle sur disque seulement)
+  (Windows : py au lieu de python3)
 
 Ce que fait l'outil :
   1. trouve les pages : chaque index.html sous --root (--all-html : tous les .html) ;
@@ -16,6 +17,8 @@ Ce que fait l'outil :
   4. vérifie chaque cible : fichier présent sur le disque (ou dossier avec index.html) ET/OU réponse HTTP 2xx ;
   5. signale aussi (avertissements) : casse différente du disque, ancres #id introuvables, références à
      l'original (--original), pages sans <title>, contenu servi différent du fichier.
+Chemins du disque local (file:, lecteur C:, partage réseau, /Users/<nom>/Desktop/…, /Users/<session>/…,
+/Volumes/…, dossiers temporaires de macOS) : toujours cassés une fois servis, signalés comme tels (HTML, CSS et JS).
 Les liens fabriqués à l'exécution ('/app/' + cle) ne sont pas visibles ici : les relever dans le DOM rendu
 (snippet du skill verifier-copie) et les passer avec --urls-file.
 
@@ -31,12 +34,13 @@ import socket
 import ssl
 import sys
 import time
+import unicodedata
 from concurrent.futures import ThreadPoolExecutor
 from html.parser import HTMLParser
 from http.client import HTTPConnection, HTTPSConnection, HTTPException
 from urllib.parse import quote, unquote, urljoin, urlsplit
 
-VERSION = '1.1'
+VERSION = '1.2'
 DUMMY = 'http://clone.invalid'          # origine fictive pour résoudre les URL sans --base
 DEFAULT_EXCLUDED_DIRS = {'.git', '.hg', '.svn', 'node_modules', '__pycache__', '.venv', 'venv', '.claude',
                          '.idea', '.vscode'}
@@ -56,6 +60,14 @@ CSS_IMPORT_RX = re.compile(r'@import\s+([\'"])(.+?)\1', re.I)
 JS_PATH_RX = re.compile(r'([\'"`])(/[A-Za-z0-9_\-.~%][^\'"`\s<>\\]*)\1')
 JS_URL_RX = re.compile(r'([\'"`])(https?://[^\'"`\s<>\\]+)\1')
 WIN_PATH_RX = re.compile(r'^(?:file:|[A-Za-z]:[\\/]|\\\\)', re.I)
+# Chemins absolus du disque macOS (ou Linux) : dossier personnel (/Users/<nom>/Desktop…, /Users/<session>/…),
+# disques (/Volumes/…), dossiers temporaires. Une route d'appli (/Users/42, /Users/Edit/5) n'y ressemble pas.
+_SESSION = re.escape(os.environ.get('USER') or os.environ.get('LOGNAME') or '')
+NIX_PATH_RX = re.compile(
+    r'^/(?:Users/[^/?#]+/(?:Desktop|Documents|Downloads|Library|Pictures|Movies|Music|Public|Sites|Applications)(?:[/?#]|$)'
+    + (r'|Users/' + _SESSION + r'(?:[/?#]|$)' if _SESSION else '')
+    + r'|Volumes/[^/?#]+/|private/(?:var|tmp)/|var/folders/|home/[^/?#]+/(?:Desktop|Documents|Downloads)(?:[/?#]|$))',
+    re.I)
 
 
 # ----------------------------------------------------------------------------------------------------
@@ -302,9 +314,15 @@ class Checker:
             if part in names:
                 cur = os.path.join(cur, part)
                 continue
-            low = {n.lower(): n for n in names}
-            if part.lower() in low:
-                real = low[part.lower()]
+            # accents : un nom enregistré en NFD (Finder, archive venue d'un Mac) et un lien en NFC sont le même
+            nfc = unicodedata.normalize('NFC', part)
+            same = {unicodedata.normalize('NFC', n): n for n in names}
+            if nfc in same:
+                cur = os.path.join(cur, same[nfc])
+                continue
+            low = {unicodedata.normalize('NFC', n).lower(): n for n in names}
+            if nfc.lower() in low:
+                real = low[nfc.lower()]
                 case_issue = '/'.join(parts[:i] + [real])
                 cur = os.path.join(cur, real)
                 continue
@@ -324,7 +342,7 @@ class Checker:
     # ---------- HTTP ----------
     def address_for(self, host, port):
         """Adresse IP qui répond vraiment. Sous Windows, « localhost » essaie d'abord ::1 : si le serveur
-        n'écoute que sur 127.0.0.1 (py -m http.server --bind 127.0.0.1), chaque requête perd ~2 s."""
+        n'écoute que sur 127.0.0.1 (python3 -m http.server --bind 127.0.0.1 ; Windows : py), chaque requête perd ~2 s."""
         key = (host, port)
         if key in self.addr_cache:
             return self.addr_cache[key]
@@ -415,6 +433,8 @@ class Checker:
             return ('ignore', 'dynamiques')
         low = v.lower()
         if WIN_PATH_RX.match(v):
+            return ('local-disque', v)
+        if NIX_PATH_RX.match(v) and v.lstrip('/').split('/')[0] not in (self.listdir(self.root) or []):
             return ('local-disque', v)
         if low.startswith(IGNORED_SCHEMES):
             return ('ignore', 'schemas')
@@ -531,8 +551,8 @@ class Checker:
             if p.startswith('//') or any(x in p for x in ('${', '{', '}', '*', '|', '(', ')', '...', '…', '/:', '[')):
                 continue            # gabarits, motifs de routeur ('/app/contacts/:id', '/[slug]') : pas des liens
             seg = p.lstrip('/').split('/')[0].split('?')[0].split('#')[0]
-            if seg not in self.js_prefixes:
-                continue
+            if seg not in self.js_prefixes and not NIX_PATH_RX.match(p):
+                continue            # chemin du disque local (/Users/<nom>/…) : relevé, il sera « cassé »
             self.add_ref(where, 'js', 'js', 'chaine', p, line_of(text, m.start(), start_line), file_url)
 
     def run(self):
@@ -548,10 +568,15 @@ class Checker:
             if not is_local_host(self.base_split.hostname) and not a.allow_remote:
                 die("--base n'est pas un serveur local (" + self.base_split.hostname + "). Cet outil contrôle un "
                     "clone servi en local ; ajoutez --allow-remote seulement pour un serveur à vous.")
+            hb = (self.base_split.hostname or '').lower()
+            if any(hb == o or hb.endswith('.' + o) for o in self.originals):
+                die("--base désigne l'original (" + hb + ") : l'outil visiterait chaque page et chaque cible de "
+                    "l'original, ce que les règles interdisent (pas de crawl), même avec --allow-remote.")
             probe = self.http('/')
             if probe['error'] and probe['status'] is None:
                 die('serveur injoignable sur ' + self.base + ' (' + probe['error'] + ').\n'
-                    '  Lancez-le : py -m http.server PORT --bind 127.0.0.1 --directory "' + self.root + '"\n'
+                    '  Lancez-le : ' + ('py' if os.name == 'nt' else 'python3') + ' -m http.server PORT --bind 127.0.0.1'
+                    ' --directory "' + self.root + '"\n'
                     '  ou relancez sans --base pour un contrôle sur disque seulement.')
             self.http_cache.clear()
 
@@ -672,7 +697,8 @@ class Checker:
                                             (' (' + h['error'] + ')' if h and h.get('error') else ''))
             if detail and state == 'ok':
                 self.warnings.append({'type': 'casse-differente', 'cible': t, 'detail': detail +
-                                      ' — marche sous Windows, cassé sur un serveur sensible à la casse'})
+                                      ' — marche sous Windows et macOS (disques insensibles à la casse), cassé '
+                                      'sous Linux et sur un hébergement sensible à la casse'})
             results[t] = {'cible': t, 'etat': state, 'raison': why, 'http': code, 'disque': st, 'fichier': rel}
 
         # 5. ancres
@@ -696,7 +722,7 @@ class Checker:
             if r.get('localDisque'):
                 key = r['cible']
                 b = broken.setdefault(key, {'cible': key, 'etat': 'cassee', 'http': None, 'disque': None,
-                                            'raison': 'chemin du disque local (file:, C:\\) : ne marche pas une fois servi',
+                                            'raison': 'chemin du disque local (file:, C:\\, /Users/…) : ne marche pas une fois servi',
                                             'occurrences': []})
             elif r.get('cible') and results[r['cible']]['etat'] == 'cassee':
                 b = broken.setdefault(r['cible'], dict(results[r['cible']], occurrences=[]))
@@ -878,8 +904,8 @@ def main(argv=None):
     p = argparse.ArgumentParser(
         prog='check_links.py',
         description="Contrôle des pages et des liens internes d'un clone servi en local (copieur-universel).",
-        epilog='Exemple : py check_links.py --root "C:\\clones\\monappli" --base http://localhost:8766 '
-               '--original app.exemple.com --out rapport-liens.json')
+        epilog='Exemple : python3 check_links.py --root "$HOME/clones/monappli" --base http://localhost:8766 '
+               '--original app.exemple.com --out rapport-liens.json   (Windows : py au lieu de python3)')
     p.add_argument('--root', required=True, help='dossier du clone (= racine du serveur local)')
     p.add_argument('--base', help='URL du serveur local, ex. http://localhost:8766 (sinon : disque seulement)')
     p.add_argument('--out', help='fichier du rapport JSON (UTF-8)')

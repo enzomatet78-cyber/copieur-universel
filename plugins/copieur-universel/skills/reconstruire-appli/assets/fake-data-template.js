@@ -9,7 +9,8 @@
  *    mesures et des textes d'un chargement à l'autre.
  *  - Ce que l'utilisateur a choisi de GARDER (titulaire du compte, son organisation, réglages propres au
  *    compte, chiffres agrégés) se renseigne dans OWNER et dans les jeux de données de la page concernée.
- *  - Emails fictifs : domaines exemple.com / exemple.fr / exemple.org (autorisés par scan_pii.py).
+ *  - Emails fictifs : domaines exemple.com / exemple.fr / exemple.org, admis par scan_pii.py avec
+ *    --allow-domain "exemple.*" (seuls les domaines réservés example.com/.org/.net le sont d'office).
  *    Téléphones fictifs : +33 6 39 98 xx xx, plage réservée aux œuvres de fiction (ARCEP).
  *  - Secrets (clés API, jetons, cartes, IBAN) : jamais de valeur réelle → FAKE.masked('sk_live_', r).
  *

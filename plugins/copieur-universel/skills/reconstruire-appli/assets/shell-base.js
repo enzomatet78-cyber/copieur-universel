@@ -26,7 +26,7 @@
  *   Comportements déclaratifs (aucun style imposé : l'aspect vient des classes recopiées de l'original) :
  *                   infobulles data-tip-text / data-tip ; menus data-menu ; modales data-modal-open ;
  *                   onglets data-tabs ; dépliants data-toggle ; interrupteurs data-switch ;
- *                   barre de menus de logiciel data-menubar (Alt+lettre, flèches, cadre de focus au clavier)
+ *                   barre de menus de logiciel data-menubar (Alt/Option+lettre, flèches, cadre de focus au clavier)
  *   Divers        : Shell.$, Shell.$$, Shell.on, Shell.show/hide/isHidden, Shell.menu, Shell.modal, Shell.tabs,
  *                   Shell.noTransition, Shell.copy, Shell.keys
  * Évènements (bubbles) : shell:ready (document), shell:menu, shell:modal, shell:toggle, shell:tab, shell:switch.
@@ -561,7 +561,7 @@
 
   /* ===================================================================================== *
    * Barre de menus d'un logiciel : <div role="menubar" data-menubar> contenant les titres [data-menu]
-   *   (+ data-accel="f" : Alt+F ouvre ce menu). Éléments des menus : role="menuitem".
+   *   (+ data-accel="f" : Alt+F ouvre ce menu, Option+F sur Mac). Éléments des menus : role="menuitem".
    *   Ouvert au CLAVIER (Alt+lettre, flèches) : classe data-kbd-class (défaut « clavier ») sur le menu et
    *   data-focus-class (défaut « is-focused ») sur l'élément actif — posées par script, car :focus ne
    *   s'applique pas dans une fenêtre sans focus (headless). Ouvert à la SOURIS : aucune des deux, comme
@@ -595,9 +595,9 @@
     else menuItems(m).forEach(function (x) { x.classList.remove(focusClass(bar)); });
   }
   function menubarKey(e) {
-    var k = e.key;
-    if (e.altKey && !e.ctrlKey && !e.metaKey && k && k.length === 1) {
-      var low = k.toLowerCase(), hit = null;
+    var k = e.key, low = e.altKey ? keyChar(e) : '';
+    if (e.altKey && !e.ctrlKey && !e.metaKey && low) {
+      var hit = null;
       $$('[data-menubar] [data-menu][data-accel]').forEach(function (t) {
         if (!hit && !isHidden(t) && (t.getAttribute('data-accel') || '').toLowerCase() === low) hit = t;
       });
@@ -747,6 +747,21 @@
   /* ===================================================================================== *
    * Clavier : Échap + raccourcis (Shell.keys({ 'ctrl+s': fn, 'f1': fn }))
    * ===================================================================================== */
+  /* Lettre d'une touche pressée avec Alt : sur macOS, Option+F donne « ƒ » (ou une touche morte) dans e.key ;
+     on lit alors la touche physique (e.code), traduite par la disposition du clavier quand le navigateur la
+     donne (AZERTY : KeyQ → a), sinon la lettre QWERTY. Sous Windows, e.key reste la lettre : rien ne change. */
+  var LAYOUT = null;
+  try {
+    if (navigator.keyboard && navigator.keyboard.getLayoutMap) {
+      navigator.keyboard.getLayoutMap().then(function (m) { LAYOUT = m; }, function () {});
+    }
+  } catch (e) { /* API absente ou refusée : lettre QWERTY */ }
+  function keyChar(e) {
+    var k = e.key || '', c = e.code || '';
+    if (/^[a-z0-9]$/i.test(k) || !/^(Key[A-Z]|Digit[0-9])$/.test(c)) return k.length === 1 ? k.toLowerCase() : '';
+    var l = LAYOUT && LAYOUT.get(c);
+    return (l && l.length === 1 ? l : c.charAt(c.length - 1)).toLowerCase();
+  }
   var KEYMAP = {};
   function keys(map) { Object.keys(map || {}).forEach(function (k) { KEYMAP[normCombo(k)] = map[k]; }); }
   function normCombo(k) {
@@ -756,7 +771,9 @@
   }
   function editable(t) { return !!(t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))); }
   D.addEventListener('keydown', function (e) {
-    var k = (e.key || '').toLowerCase(); if (k === ' ') k = 'space';
+    var k = (e.key || '').toLowerCase();
+    if (e.altKey && keyChar(e)) k = keyChar(e);            // Option+lettre sur Mac
+    if (k === ' ' || e.code === 'Space') k = 'space';
     var combo = [e.ctrlKey || e.metaKey ? 'ctrl' : '', e.altKey ? 'alt' : '', e.shiftKey ? 'shift' : '', k].filter(Boolean).join('+');
     var fn = KEYMAP[combo];
     if (fn && !(editable(e.target) && !(e.ctrlKey || e.metaKey || e.altKey) && k.length === 1)) {

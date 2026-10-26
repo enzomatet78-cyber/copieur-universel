@@ -21,8 +21,9 @@
     -Expand "Fichier"[,"Sous-menu"]  déplie menus, listes déroulantes, nœuds d'arbre (ExpandCollapse), puis
                                      les replie après le relevé (sauf -KeepOpen) ; plusieurs niveaux :
                                      -Expand "Affichage,Zoom" (virgule ; un nom contenant une virgule n'est pas pris).
-                                     Refusé : un sous-menu de fichiers récents (« Récent », « Ouvrir récent »,
-                                     « Fichiers récents », « Open Recent »…), qui montrerait les fichiers de
+                                     Refusé : un sous-menu de fichiers récents (nom contenant récent(s/e/es),
+                                     récemment, recent, recently, historique, history, MRU : « Ouvrir récent »,
+                                     « Médias récents », « Recently Opened »…), qui montrerait les fichiers de
                                      l'utilisateur ; -AllowRecent seulement si la liste est fictive.
     -SelectTab "Affichage"           sélectionne un onglet (TabItem uniquement)
     -Invoke "Mise en page"           active UNIQUEMENT un menu/bouton qui ouvre une boîte de dialogue ou une vue :
@@ -30,9 +31,12 @@
                                      (Options, Paramètres, Préférences, Propriétés, À propos, Mise en page,
                                      Police, Rechercher, Remplacer, Atteindre, et équivalents anglais ; ces cinq
                                      derniers en élément de MENU seulement : sur un bouton de boîte de dialogue,
-                                     « Remplacer » remplacerait le texte). Jamais, même avec « … » : Enregistrer,
-                                     Ouvrir, Parcourir, Imprimer, Exporter, Supprimer, Envoyer, Quitter, Fermer,
-                                     Se déconnecter, Réinitialiser, Mettre à jour… ; ni Aide (navigateur).
+                                     « Remplacer » remplacerait le texte). Jamais, même avec « … », où que soit
+                                     le mot dans le nom : Enregistrer, Ouvrir, Parcourir, Imprimer, Exporter,
+                                     Supprimer, Envoyer, Quitter, Fermer, Se déconnecter, Réinitialiser, Mettre à
+                                     jour (« Rechercher les mises à jour… », « Check for Updates... »), Installer,
+                                     Se connecter / Connexion, Ajouter un dossier / des fichiers, Télécharger ;
+                                     ni Aide/Help, Bing, Web (navigateur).
                                      Un élément d'un menu fermé : -Expand "Fichier" -Invoke "Mise en page"
     -CloseWindow "Mise en page"      ferme une boîte de dialogue de l'appli (WM_CLOSE = Annuler) ; jamais la
                                      fenêtre principale
@@ -552,9 +556,11 @@ namespace CopieurUniversel.Uia1
         // Ces noms ouvrent une bo\u00eete quand c'est un \u00e9l\u00e9ment de MENU, mais EX\u00c9CUTENT l'action sur un bouton de la
         // bo\u00eete elle-m\u00eame (\u00ab Remplacer \u00bb remplace le texte du document) : MenuItem seulement.
         public static readonly Regex MenuOnly = new Regex(@"^(rechercher|remplacer|atteindre|police|mise en page|find|replace|go to|font|page setup)$");
-        // Jamais, m\u00eame avec \u00ab \u2026 \u00bb : actions qui modifient ou envoient, et bo\u00eetes syst\u00e8me qui montrent les fichiers ou
-        // imprimantes de l'utilisateur (Ouvrir, Enregistrer sous, Parcourir, Imprimer, Exporter).
-        static readonly Regex Deny = new Regex(@"^(enregistrer|sauvegarder|ouvrir|parcourir|importer|exporter|imprimer|supprimer|effacer|vider|quitter|fermer|se d\u00e9connecter|d\u00e9connecter|d\u00e9connexion|r\u00e9initialiser|d\u00e9sinstaller|mettre \u00e0 jour|red\u00e9marrer|envoyer|publier|partager|acheter|payer|s'abonner|renommer|d\u00e9placer|save|open|browse|import|export|print|delete|remove|clear|empty|exit|quit|close|sign out|log out|logout|reset|uninstall|update|restart|send|publish|share|buy|purchase|pay|subscribe|rename|move)\b");
+        // Jamais, m\u00eame avec \u00ab \u2026 \u00bb, O\u00d9 QUE SOIT le mot dans le nom (\u00ab Check for Updates... \u00bb ne commence pas par
+        // \u00ab update \u00bb) : actions qui modifient ou envoient, mises \u00e0 jour et installations, connexion, aide et web (ouvrent
+        // le navigateur), et bo\u00eetes syst\u00e8me qui montrent les fichiers ou imprimantes de l'utilisateur (Ouvrir,
+        // Enregistrer sous, Parcourir, Imprimer, Exporter, Ajouter un dossier, Ins\u00e9rer une image).
+        static readonly Regex Deny = new Regex(@"\b(enregistrer|sauvegarder|ouvrir|rouvrir|parcourir|importer|exporter|imprimer|supprimer|effacer|vider|quitter|fermer|se d\u00e9connecter|d\u00e9connecter|d\u00e9connexion|se connecter|connexion|s['\u2019]identifier|s['\u2019]inscrire|r\u00e9initialiser|installer|installation|d\u00e9sinstaller|mettre \u00e0 jour|mises? \u00e0 jour|mettre \u00e0 niveau|mise \u00e0 niveau|red\u00e9marrer|envoyer|publier|partager|acheter|payer|s['\u2019]abonner|renommer|d\u00e9placer|t\u00e9l\u00e9charger|aide|ajouter (?:un |des )?(?:dossiers?|fichiers?)|ins\u00e9rer (?:une |un |des )?(?:images?|fichiers?|objets?)|signaler un probl\u00e8me|save|open|reopen|browse|import|export|print|delete|remove|clear|empty|exit|quit|close|sign out|log out|logout|sign in|sign up|log in|login|reset|install\w*|uninstall|updates?|upgrade|restart|send|publish|share|buy|purchase|pay|subscribe|rename|move|download|help|feedback|report (?:an )?issue|add (?:a )?(?:folders?|files?)|insert (?:a )?(?:pictures?|images?|files?|objects?)|bing|web)\b");
         public static bool SafeToInvoke(string s) { string n = Norm(s); return !Deny.IsMatch(n) && (EndsWithEllipsis(s) || SafeOpen.IsMatch(n)); }
         static string NameOf(AutomationElement e) { try { return e.Current.Name ?? ""; } catch (Exception) { return ""; } }
         static string TypeOf(AutomationElement e) { try { return e.Current.ControlType.ProgrammaticName.Replace("ControlType.", ""); } catch (Exception) { return "?"; } }
@@ -909,7 +915,9 @@ if ($CloseWindow) {
 $Expand = @($Expand | Where-Object { $_ } | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 # Sous-menus des fichiers récents : ils affichent les noms de fichiers (et dossiers) de l'UTILISATEUR. On ne les
 # ouvre pas (décrire la flèche ›) ; -AllowRecent seulement quand la liste est fictive (profil temporaire, appli neuve).
-$recentRx = '^(?:(?:fichiers?|documents?|projets?|dossiers?|[eé]l[eé]ments?|espaces? de travail)\s+)?r[eé]cents?$|^(?:r?ouvrir|reprendre)\b.*r[eé]cent|^recent(?:s|\s+(?:files?|documents?|projects?|items?|folders?|workspaces?))?$|^(?:open|reopen)\s+recent|^reopen\b|^historique(?:\s+des\s+fichiers)?$|^derni(?:er|ère)s?\s+(?:fichiers?|documents?)'
+# Recherche PARTOUT dans le nom (« Médias récents », « Recently Opened », « Documents récemment ouverts »…) ;
+# « Recentrer » (re-centrer) n'est pas visé.
+$recentRx = '\br[eé]ce(?:nt|nts|nte|ntes|ntly|mment)\b|\bhistor(?:ique|iques|y)\b|\bmru\b|^(?:r?ouvrir|reprendre)\b.*r[eé]cent|^reopen\b|^derni(?:er|ère)s?\s+(?:fichiers?|documents?|m[eé]dias?|projets?|dossiers?)'
 foreach ($name in $Expand) {
   $clean = ($name -replace '&', '' -replace '(\.\.\.|…)$', '').Trim()
   if (-not $AllowRecent -and $clean -match $recentRx) {

@@ -1,14 +1,18 @@
 # -*- coding: utf-8 -*-
 """textes.py - comparer les textes d'une capture (dom-*.html) et du clone, caractere par caractere.
 Outil du plugin copieur-universel (skill verifier-copie, references/methode.md section 4).
-  py textes.py capture dom-page.html > capture-textes.json
-  py textes.py diff capture-textes.json clone-textes.json [--masquer-chiffres] [--attributs]
+  python3 textes.py capture dom-page.html > capture-textes.json
+  python3 textes.py diff capture-textes.json clone-textes.json [--masquer-chiffres] [--attributs]
+  (Windows : py au lieu de python3)
 clone-textes.json = resultat de __textes('<selecteur>') (outils/verif.js) lance dans le clone, ecrit tel
 quel (la chaine JSON renvoyee par javascript_tool est acceptee).
 --attributs : placeholder, aria-label, alt, title, value. Un attribut present des deux cotes mais un nombre
 de fois different (aria-label repete sur li, a et badge) est signale a part (« ~ nombre different »), pas
 comme absent.
-Code de sortie : 0 identique, 1 ecarts, 2 usage."""
+Dans un bloc de textes differents, chaque texte de la capture est apparie au texte du clone le plus proche
+(ressemblance > 0,6) ; le reste est « absent » ou « en trop ». Le <title> d'un dump de document complet est
+releve a part (« titre ») et compare au titre renvoye par __textes quand les deux existent.
+Code de sortie : 0 identique (et --help), 1 ecarts, 2 usage, fichier illisible ou __textes en erreur."""
 import difflib
 import json
 import re
@@ -17,7 +21,7 @@ import unicodedata
 from collections import Counter
 from html.parser import HTMLParser
 
-SKIP = {'script', 'style', 'noscript', 'template', 'svg', 'canvas', 'iframe', 'video', 'audio'}
+SKIP = {'script', 'style', 'noscript', 'template', 'svg', 'canvas', 'iframe', 'video', 'audio', 'title'}
 INLINE = {'span', 'b', 'strong', 'i', 'em', 'small', 'code', 'sup', 'sub', 'abbr', 'mark', 'u', 's', 'time',
           'kbd', 'q', 'cite', 'dfn', 'var', 'bdi', 'bdo', 'wbr', 'font'}
 VOID = {'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr'}
@@ -32,6 +36,7 @@ class Extract(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.textes, self.attributs, self.buf, self.skip = [], [], [], 0
+        self.titre, self.in_title = None, False   # <title> releve a part, comme « titre » de __textes
 
     def flush(self):
         t = norm(''.join(self.buf))
@@ -41,6 +46,8 @@ class Extract(HTMLParser):
 
     def handle_starttag(self, tag, attrs, closed=False):
         opens = not closed and tag not in VOID
+        if tag == 'title' and opens and not self.skip and self.titre is None:
+            self.in_title, self.titre = True, ''
         if self.skip or tag in SKIP:
             if tag in SKIP and opens:
                 self.skip += 1
@@ -62,6 +69,8 @@ class Extract(HTMLParser):
         self.handle_starttag(tag, attrs, closed=True)
 
     def handle_endtag(self, tag):
+        if tag == 'title':
+            self.in_title = False
         if self.skip:
             if tag in SKIP:
                 self.skip -= 1
@@ -70,6 +79,8 @@ class Extract(HTMLParser):
             self.flush()
 
     def handle_data(self, data):
+        if self.in_title:
+            self.titre += data
         if not self.skip:
             self.buf.append(data)
 
@@ -88,22 +99,77 @@ def chardiff(a, b):
     return ' ; '.join(out)
 
 
+class Usage(Exception):
+    """Fichier illisible ou resultat d'erreur : code 2 (pas 1, reserve aux ecarts)."""
+
+
 def load(path):
-    with open(path, encoding='utf-8-sig') as f:
-        data = json.load(f)
-    return json.loads(data) if isinstance(data, str) else data
+    try:
+        with open(path, encoding='utf-8-sig') as f:
+            data = json.load(f)
+        data = json.loads(data) if isinstance(data, str) else data
+    except (OSError, ValueError) as e:
+        raise Usage('lecture impossible de %s (%s)' % (path, e))
+    if not isinstance(data, dict):
+        raise Usage('%s : objet JSON attendu (resultat de textes.py capture ou de __textes)' % path)
+    if 'erreur' in data:
+        raise Usage('%s : __textes a echoue : %s (selecteur de la zone a corriger)' % (path, data['erreur']))
+    if not isinstance(data.get('textes'), list):
+        raise Usage('%s : champ « textes » absent (resultat de textes.py capture ou de __textes attendu)' % path)
+    return data
+
+
+def apparier(a, b):
+    """Bloc « replace » : chaque texte de la capture va au texte du clone le plus proche (ratio > 0,6), dans
+    l'ordre ; -> (paires, absents, enTrop)."""
+    libres, paires, absents = list(range(len(b))), [], []
+    for x in a:
+        best, score = None, 0.6
+        for j in libres:
+            sm = difflib.SequenceMatcher(None, x, b[j], autojunk=False)
+            if sm.real_quick_ratio() <= score or sm.quick_ratio() <= score:
+                continue            # bornes rapides : un gros bloc reste rapide
+            r = sm.ratio()
+            if r > score:
+                best, score = j, r
+        if best is None:
+            absents.append(x)
+        else:
+            libres.remove(best)
+            paires.append((x, b[best]))
+    return paires, absents, [b[j] for j in libres]
 
 
 def main():
-    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-    args = sys.argv[1:]
+    for st in (sys.stdout, sys.stderr):
+        try:
+            st.reconfigure(encoding='utf-8', errors='replace')
+        except (AttributeError, ValueError):
+            pass
+    try:
+        return run(sys.argv[1:])
+    except Usage as e:
+        print('erreur : %s' % e, file=sys.stderr)
+        return 2
+
+
+def run(args):
+    if args and args[0] in ('-h', '--help'):
+        print(__doc__)
+        return 0
     if len(args) >= 2 and args[0] == 'capture':
         p = Extract()
-        with open(args[1], encoding='utf-8-sig') as f:
-            p.feed(f.read())
+        try:
+            with open(args[1], encoding='utf-8-sig') as f:
+                p.feed(f.read())
+        except (OSError, UnicodeDecodeError) as e:
+            raise Usage('lecture impossible de %s (%s)' % (args[1], e))
         p.close()
         p.flush()
-        print(json.dumps({'source': args[1], 'textes': p.textes, 'attributs': p.attributs}, ensure_ascii=False, indent=0))
+        out = {'source': args[1], 'textes': p.textes, 'attributs': p.attributs}
+        if p.titre is not None:
+            out['titre'] = norm(p.titre)
+        print(json.dumps(out, ensure_ascii=False, indent=0))
         return 0
     if len(args) >= 3 and args[0] == 'diff':
         A, B = load(args[1]), load(args[2])
@@ -116,17 +182,21 @@ def main():
                 continue
             a, b = ta[i1:i2], tb[j1:j2]
             if op == 'replace':
-                k = min(len(a), len(b))
-                for x, y in zip(a[:k], b[:k]):
+                paires, a, b = apparier(a, b)
+                for x, y in paires:
                     n['modifies'] += 1
                     print('~ capture : %s\n  clone   : %s\n  ecart   : %s' % (x, y, chardiff(x, y)))
-                a, b = a[k:], b[k:]
             for x in a:
                 n['absents'] += 1
                 print('- absent du clone : %s' % x)
             for y in b:
                 n['enTrop'] += 1
                 print('+ en trop dans le clone : %s' % y)
+        if A.get('titre') is not None and B.get('titre') is not None:
+            xa, xb = f(norm(A['titre'])), f(norm(B['titre']))
+            if xa != xb:
+                n['titre'] = 1
+                print('~ titre : capture «%s» / clone «%s»\n  ecart   : %s' % (xa, xb, chardiff(xa, xb)))
         if '--attributs' in args:
             ca, cb = Counter(A.get('attributs', [])), Counter(B.get('attributs', []))
             n['attributs'] = 0
@@ -140,8 +210,9 @@ def main():
                 elif ca[k] != cb[k]:  # même texte, répété un autre nombre de fois : à regarder, rarement un défaut
                     print('~ nombre different (capture %d, clone %d) : %s' % (ca[k], cb[k], k))
         print('Bilan : %(identiques)d identiques, %(modifies)d modifies, %(absents)d absents du clone, %(enTrop)d en trop' % n
-              + (' ; %d attribut(s) absent(s) ou en trop' % n['attributs'] if 'attributs' in n else ''))
-        return 1 if (n['modifies'] or n['absents'] or n['enTrop'] or n.get('attributs')) else 0
+              + (' ; %d attribut(s) absent(s) ou en trop' % n['attributs'] if 'attributs' in n else '')
+              + (' ; titre different' if n.get('titre') else ''))
+        return 1 if (n['modifies'] or n['absents'] or n['enTrop'] or n.get('attributs') or n.get('titre')) else 0
     print(__doc__)
     return 2
 

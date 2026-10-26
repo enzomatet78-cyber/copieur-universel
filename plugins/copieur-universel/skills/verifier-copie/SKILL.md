@@ -20,14 +20,17 @@ Trois constats structurent ce skill :
   imaginaires et dégrade une page juste. D'où le **vérificateur adverse**, qui tente de réfuter chaque écart
   et le rejette quand la preuve est ambiguë.
 
-**Outils** : dossier `outils/` du plugin = `${CLAUDE_PLUGIN_ROOT}/outils/` ; si cette variable n'est pas
-remplacée, utiliser `<Base directory de ce skill>\..\..\outils\` (résoudre en chemin absolu avant de lancer une
-commande). Dans la suite, `OUTILS` désigne ce chemin absolu (cmd : `%OUTILS%`, bash : `$OUTILS`).
+**Outils** : dossier `outils/` du plugin, `OUTILS="${CLAUDE_PLUGIN_ROOT}/outils"` ; si cette variable n'est pas
+remplacée, utiliser `"<Base directory de ce skill>/../../outils"` (résoudre en chemin absolu avant de lancer une
+commande). Dans la suite, `OUTILS` désigne ce chemin absolu, `CLONE` le dossier du clone et `TRAVAIL` le dossier
+de travail. Les commandes sont écrites pour l'outil Bash (bash/zsh sous macOS, Git Bash sous Windows), chemins
+entre guillemets ; chaque appel Bash est un nouveau shell : redéfinir ces variables ou écrire les chemins en clair.
+Sous Windows, `py` remplace `python3` (lanceur Python de Windows).
 Outils utilisés ici (Python standard ou JavaScript à injecter, aucune dépendance) : `verif.js` (mesures,
 textes, débordement, liens rendus, réseau, formulaires), `textes.py` (textes caractère par caractère),
 `png_diff.py` (images au pixel près), `uia_rects.py` (rectangles d'un relevé UIA en px CSS), `check_links.py`,
-`scan_pii.py`, et pour mesurer sans navigateur intégré `headless.ps1` + `cdp_eval.py` (`nav --console`,
-`eval`, `shot`, `hover`).
+`scan_pii.py`, et pour mesurer sans navigateur intégré `headless.py` + `cdp_eval.py` (`nav --console`,
+`eval`, `shot`, `hover`) ; Windows : `headless.ps1` reste disponible (mêmes actions).
 
 Fichier de ce skill : `references/methode.md` — mode d'emploi de ces outils (navigateur intégré, headless,
 comparaison d'images et « dump contre dump »), schémas JSON, gabarits de prompts (relecteur, adverse,
@@ -44,9 +47,9 @@ capture), `reconstruire-appli` (conventions du clone, `references/fidelite.md`),
 
 | Entrée | Où | Pourquoi |
 |---|---|---|
-| Capture de l'original | `<TRAVAIL>\capture\<unité>\<page>\` : `notes.md`, `dom-*.html` (web) ou `uia-*.json` (natif), images | c'est **la** référence ; sans elle on ne juge pas la fidélité |
+| Capture de l'original | `<TRAVAIL>/capture/<unité>/<page>/` : `notes.md`, `dom-*.html` (web) ou `uia-*.json` (natif), images | c'est **la** référence ; sans elle on ne juge pas la fidélité |
 | Clone servi en local | ex. `http://localhost:8766/` (serveur déjà lancé, on ne l'arrête pas) | on mesure le rendu réel, pas la source |
-| GUIDE du projet | `<TRAVAIL>\GUIDE.md` | gabarit, coque, clés de navigation, qui peut modifier quoi |
+| GUIDE du projet | `<TRAVAIL>/GUIDE.md` | gabarit, coque, clés de navigation, qui peut modifier quoi |
 | Ce qui est gardé tel quel | titulaire du compte, son email, son organisation… | liste blanche de `scan_pii.py`, et tout le reste doit être fictif |
 | Viewport de référence | `notes.md` de la capture (ex. 1536×791, DPR 1) | une mesure à une autre taille ne prouve rien |
 | Écarts acceptés | liste écrite par l'agent principal (ex. images liées depuis l'original) | on ne les signale pas, on ne les « corrige » pas |
@@ -95,22 +98,26 @@ vraie passe indépendante plutôt que de la simuler.
   ses mesures.
 - **Viewport** : `resize_window` à la taille de la capture, puis vérifiez `innerWidth`, `innerHeight` et
   `devicePixelRatio` dans la page. Une image de capture est en pixels **physiques** : px CSS = px image ÷ DPR.
-  Le navigateur intégré suit l'échelle de Windows (DPR 1,25 mesuré sur ce poste) : ses mesures JS restent en
-  px CSS, donc comparables, mais ses captures d'écran sont agrandies d'autant.
+  Le DPR du navigateur intégré suit l'écran : 1,25 sous Windows à 125 %, 2 sur un Mac Retina. Ses mesures JS
+  restent en px CSS, donc comparables, mais ses captures d'écran sont agrandies d'autant.
 - **État propre** : `localStorage.clear(); sessionStorage.clear(); location.reload()` avant la première mesure,
   sinon un panneau replié ou un onglet mémorisé par un test précédent passe pour un écart.
 - **Attendre** que la page soit stable : `<html data-shell="ready">` (coque `shell-base.js`), polices chargées
   (`document.fonts.ready`), fin des squelettes de chargement (~1,5 s). Fonction `__attendre` : `methode.md` §1 et §3.
 - **Sans navigateur intégré**, ou pour écrire les mesures directement dans des fichiers, ou pour comparer des
-  images au pixel près : Chrome/Edge headless sur profil temporaire (`headless.ps1 -Action lancer`, qui règle
-  la taille **avant** toute page) + `cdp_eval.py` (`nav --console`, `eval --file verif.js --expr … --out`,
-  `shot`, `hover`), puis `headless.ps1 -Action fermer` — `methode.md` §2. Petit écran : `--viewport 375x812` sur
-  `nav`, `eval` et `shot` (une fenêtre headless ne descend pas sous ~500 px). Mesurer au **DPR de la capture**
-  (`--viewport LxH@1.25` pour une capture à 125 %) : à DPR 1, les hauteurs de ligne s'arrondissent autrement.
-  Ne jamais utiliser le Chrome de l'utilisateur pour mesurer.
+  images au pixel près : Chrome/Edge headless sur profil temporaire (`python3 "$OUTILS/headless.py" lancer`,
+  qui règle la taille **avant** toute page ; noter `port` et `profil`) + `cdp_eval.py` (`nav --console`,
+  `eval --file verif.js --expr … --out`, `shot`, `hover`), puis `headless.py fermer --profil "<profil>"` —
+  `methode.md` §2. Petit écran : `--viewport 375x812` sur `nav`, `eval` et `shot` (une fenêtre headless ne
+  descend pas sous ~500 px). Mesurer au **DPR de la capture** (`--viewport LxH@1.25` pour une capture à 125 %,
+  `--viewport LxH@2` pour une capture faite sur un Mac Retina) : à DPR 1, les hauteurs de ligne s'arrondissent
+  autrement. Ne jamais utiliser le Chrome de l'utilisateur pour mesurer (ni `open -a`, ni un navigateur sans
+  `--headless=new` et profil temporaire).
 - **Logiciel de bureau** : le clone est une page web ouverte comme une fenêtre d'appli ; on le mesure de la
   même façon à la taille **CSS** de la fenêtre d'origine, et on compare aux rectangles de `uia-*.json`
-  (pixels physiques ÷ échelle) et aux images de `window_shot.ps1` — `methode.md` §8.
+  (pixels physiques ÷ échelle) et aux images de `window_shot.ps1` (Windows) — `methode.md` §8. macOS : seule
+  une appli Electron/CEF se vérifie comme une page (DOM) ; une appli native n'a que ses images de référence
+  (`screencapture`), sans équivalent à `uia-*.json`.
 - **Déterminisme** : deux rechargements doivent donner la même page (données fictives à graine fixe, date
   figée). Si ce n'est pas le cas, c'est un écart à signaler, et la cause de mesures incohérentes.
 
@@ -129,10 +136,11 @@ Chaque angle se vérifie **pour chaque page et chaque état capturé** (onglet, 
   icônes (taille, `stroke-width`), bordures, rayons, ombres, barres de défilement, états de survol
   (`computer` hover puis `zoom` sur la zone).
 - **Image contre image** : `png_diff.py diff <capture.png> <clone.png> --out ecarts.png` (même format, même
-  DPR) donne le nombre de pixels différents, la boîte et les zones touchées ; 0 pixel au-dessus du seuil est
-  une preuve forte, et c'est ainsi qu'un décalage de 52 px à 375 px a été trouvé sur l'essai web. **Dump contre
-  dump** : le clone passé dans le même kit de capture (mode raw) se compare ligne à ligne au `dom-*.html`
-  (`methode.md` §6).
+  DPR) donne le nombre de pixels différents, la boîte et les zones touchées ; 0 pixel au-dessus du seuil ET
+  tailles identiques est une preuve forte (tailles différentes sans `--zone` : code 1 et
+  `"taillesDifferentes": true`, seule la partie commune a été comparée), et c'est ainsi qu'un décalage de
+  52 px à 375 px a été trouvé sur l'essai web. **Dump contre dump** : le clone passé dans le même kit de
+  capture (mode raw) se compare ligne à ligne au `dom-*.html` (`methode.md` §6).
 - Tolérance ±2 px ; ignorez les artefacts JPEG. Un écart sans mesure n'est pas un écart.
 
 ### 4.2 Textes, caractère par caractère
@@ -163,16 +171,20 @@ Chaque angle se vérifie **pour chaque page et chaque état capturé** (onglet, 
 
 ### 4.4 Confidentialité et règles
 - `scan_pii.py` sur les fichiers du clone (commande au §9) : emails, téléphones, IBAN, cartes, clés, jetons,
-  chemins locaux qui contiennent un nom de session (`C:\Users\<nom>`). Il ne lit pas les **images** : regarder
-  soi-même chaque image versée dans le clone (icônes recadrées d'une capture).
+  chemins locaux qui contiennent un nom de session (`C:\Users\<nom>`, `/Users/<nom>/`). Il ne lit pas les
+  **images** : regarder soi-même chaque image versée dans le clone (icônes recadrées d'une capture).
 - Seules les valeurs choisies par l'utilisateur restent réelles. Les téléphones fictifs viennent de la plage
   réservée à la fiction (`+33 6 39 98 xx xx`) : un « 06 12 34 56 78 » appartient à quelqu'un, et les numéros
   anonymisés par le kit de capture gardent leurs premiers chiffres — tous deux doivent être remplacés.
-- Réseau (`read_network_requests`, `__reseau`) : aucune requête vers les API de l'original ; les ressources
-  statiques liées depuis l'original ne sont admises que si le GUIDE les accepte (écart accepté).
-- Aucun formulaire de connexion ou de paiement fonctionnel (`__formulaires` : ni `action`, ni `fetch`, champs
-  sans effet) ; secrets affichés masqués (`sk_live_••••3f9a`) ; aucune capture brute (`dom-*.html`, images
-  d'origine) copiée dans le dossier servi.
+- Réseau (`read_network_requests`, `__reseau` relancé **après** les interactions) : aucune requête vers les API
+  de l'original ; les ressources statiques liées depuis l'original ne sont admises que si le GUIDE les accepte
+  (écart accepté).
+- Aucun formulaire de connexion ou de paiement fonctionnel : `__formulaires` ne regarde que les éléments `<form>`
+  (`action`, mot de passe, carte) ; un écran fait de `div` + JS (champ mot de passe hors `<form>`, envoi par
+  script) se vérifie par `__reseau` après avoir cliqué « Se connecter » / « Payer », et dans la source :
+  `grep -rnE "fetch\(|XMLHttpRequest|sendBeacon|WebSocket|navigator\.credentials" "$CLONE"` (résultat attendu :
+  vide, hors bibliothèques publiques chargées par CDN). Secrets affichés masqués (`sk_live_••••3f9a`) ; aucune
+  capture brute (`dom-*.html`, images d'origine) copiée dans le dossier servi.
 - Le clone reste **local et personnel** (`copier-une-appli/references/regles.md` §1) : marques et logos
   appartiennent à l'éditeur. Vérifier n'est pas préparer une mise en ligne ; si l'utilisateur veut publier,
   la bonne voie est une interface inspirée, avec sa propre marque.
@@ -251,17 +263,19 @@ Quand toutes les unités ont passé leurs deux vérifications. Ordre conseillé 
 1. **Inventaire** : toutes les pages présentes (Glob `**/index.html`) contre la liste attendue (inventaire de
    reconnaissance, résultats de construction). Une page manquante est un écart, pas un détail.
 2. **Pages et liens** (HTML statique, CSS, chemins écrits dans le JS) :
+   ```bash
+   python3 "$OUTILS/check_links.py" --root "$CLONE" --base http://localhost:<PORT> --original <hôte de l'original> --out "$TRAVAIL/verif/liens.json"
    ```
-   py "%OUTILS%\check_links.py" --root "<CLONE>" --base http://localhost:<PORT> --original <hôte de l'original> --out "<TRAVAIL>\verif\liens.json"
-   ```
-   (Git Bash : `py "$OUTILS/check_links.py" …` ; sans `--base`, contrôle sur disque seulement.)
+   (Sans `--base`, contrôle sur disque seulement.)
    **Livraison partielle** (une page, une section) : les liens de navigation vers les pages non construites
    ne sont pas des défauts du livrable ; `--hors-perimetre app/settings,app/affiliate` (ou `@fichier`) les
    classe à part et les liste, et le compte rendu dit lesquels restent à construire.
    Code 0 = tout répond ; 1 = page ou lien cassé ; 2 = usage ou serveur injoignable. Cassés « [JS] » : chemins
    trouvés dans une chaîne JavaScript, à confirmer dans le rendu. Avertissements : `casse-differente` (marche
-   sous Windows, casse ailleurs), `ancre-introuvable`, `reference-original`, `contenu-different` (le port sert
-   un autre dossier !), `servi-hors-disque` (repli SPA qui masque un lien cassé).
+   sous Windows et macOS, cassé sous Linux et sur un hébergement sensible à la casse), `ancre-introuvable`,
+   `reference-original`, `contenu-different` (le port sert un autre dossier !), `servi-hors-disque` (repli SPA
+   qui masque un lien cassé). Chemins du disque local (`C:\…`, `file:`, `/Users/<nom>/Desktop/…`) : cassés,
+   avec cette raison.
 3. **Liens générés à l'exécution** (menus construits par la coque) : sur chaque page, ouvrir les menus puis
    `__liens()` ; réunir les résultats dans un JSON et relancer `check_links.py … --urls-file liens-rendus.json`.
    Le résultat s'écrit tel que `javascript_tool` le renvoie (chaîne JSON), une liste de listes (une par page)
@@ -269,17 +283,23 @@ Quand toutes les unités ont passé leurs deux vérifications. Ordre conseillé 
 4. **Chaque page** dans le navigateur : console propre, élément actif de la navigation correct, en-têtes de
    section cohérents d'une page à l'autre, pas de défilement horizontal (viewport de référence et 375 px).
 5. **Confidentialité** :
-   ```
-   py "%OUTILS%\scan_pii.py" --root "<CLONE>" --allow "<email gardé>" --allow-domain "exemple.*" --out "<TRAVAIL>\verif\pii.json"
+   ```bash
+   python3 "$OUTILS/scan_pii.py" --root "$CLONE" --allow "<email gardé>" --allow-domain "exemple.*" --out "$TRAVAIL/verif/pii.json"
    ```
    Ajoutez `--deny-file noms-reels.txt` si la capture a relevé de vrais noms (ceux passés à `__addNames`) :
    aucun ne doit réapparaître. Code 0 = rien trouvé ; 2 = erreur d'usage ; 1 = quelque chose à trier (tableau
    au §7 de `methode.md`, rapport : secrets, cartes et IBAN y sont masqués) : valeur réelle →
    remplacer par une valeur fictive ; texte d'exemple de l'interface d'origine (placeholder) → le garder,
    l'autoriser avec `--allow` et le noter ; fictif hors plage de fiction → le remplacer.
-6. **Réseau** : aucune requête vers l'API de l'original (`__reseau`, `read_network_requests`).
+6. **Réseau** : aucune requête vers l'API de l'original (`__reseau` après les interactions,
+   `read_network_requests`) ; aucun envoi écrit dans le JS (`grep` du §4.4).
 7. **Propreté** : aucun fichier de travail dans le dossier servi (captures, dumps, journaux, scripts de
-   vérification) ; aucun chemin `C:\…` ou `file:` (signalé par `check_links.py`).
+   vérification) — aucun outil ne le vérifie, d'où cette commande (résultat attendu : vide) :
+   ```bash
+   find "$CLONE" \( -name 'dom-*.html' -o -name 'uia-*.json' -o -name 'notes.md' -o -name 'GUIDE.md' \
+     -o -name '*-console.json' -o -name '*.log' -o -name '.DS_Store' -o -name 'graphique-*.txt' \) -print
+   ```
+   Aucun chemin `C:\…`, `/Users/<nom>/…` ou `file:` (signalés par `check_links.py` et `scan_pii.py`).
 8. Corrigez les pages ; tout ce qui touche la coque ou une section va dans `shellIssues` / `sectionIssues`,
    puis relancez les deux outils pour montrer le résultat final.
 
@@ -330,12 +350,12 @@ l'utilisateur a choisi de garder ; aucune requête vers l'original hors écarts 
 | Requêtes très lentes vers `localhost` | Windows essaie IPv6 d'abord | géré par `check_links.py` ; ailleurs, préférer `127.0.0.1` |
 | Lien cassé invisible pour `check_links.py` | lien fabriqué par le JS (`'/app/' + clé`) | `__liens()` dans le rendu, puis `--urls-file` |
 | Lien « OK » qui mène à la mauvaise page | serveur à repli SPA qui répond 200 partout | `servi-hors-disque` dans le rapport ; ouvrir la page |
-| Lien qui marche sous Windows seulement | casse différente (`/App/…`) | avertissement `casse-differente` : aligner sur le disque |
+| Lien qui marche sous Windows et macOS seulement | casse différente (`/App/…`) | avertissement `casse-differente` : aligner sur le disque |
 | `scan_pii.py` signale des numéros dans des données | identifiants, graduations | `aVerifier` / `--seuil haute`, ou valeur fictive de la plage de fiction |
 | Relecteur qui signale 30 écarts | comparaison à ses goûts, pas à l'original | preuve exigée, vérificateur adverse, `real=false` si doute |
-| Profil headless impossible à supprimer | les processus enfants de Chrome gardent le profil 10 à 20 s après l'arrêt | `headless.ps1 -Action fermer` (attend jusqu'à 60 s) ; sinon donner le chemin restant |
-| Page chargée à la mauvaise disposition (barre repliée, colonnes) | fenêtre redimensionnée après le chargement, ou petit écran < 500 px | taille d'abord (`headless.ps1`), puis `nav --viewport LxH` (`methode.md` §2) |
-| Hauteurs de 1–2 px différentes partout | clone mesuré à DPR 1, capture à 1,25 | `--viewport LxH@1.25` |
+| Profil headless impossible à supprimer | les processus enfants de Chrome gardent le profil 10 à 20 s après l'arrêt | `headless.py fermer` (attend jusqu'à 60 s) ; sinon donner le chemin restant |
+| Page chargée à la mauvaise disposition (barre repliée, colonnes) | fenêtre redimensionnée après le chargement, ou petit écran < 500 px | taille d'abord (`headless.py lancer --viewport`), puis `nav --viewport LxH` (`methode.md` §2) |
+| Hauteurs de 1–2 px différentes partout | clone mesuré à DPR 1, capture à 1,25 (ou 2 sur un Mac Retina) | `--viewport LxH@1.25` (ou `@2`) |
 | `textes.py` : « ~ nombre different » sur un attribut | même `aria-label` répété un autre nombre de fois | à regarder, rarement un défaut (`methode.md` §4) |
 | `check_links.py` échoue sur une livraison d'une seule page | liens vers des pages non construites | `--hors-perimetre` (§9) |
 

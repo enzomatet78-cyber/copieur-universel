@@ -3,13 +3,15 @@
   glyphes.html — identifier les icônes d'un logiciel Windows dans une police d'icônes installée (Segoe Fluent
   Icons sous Windows 11, Segoe MDL2 Assets sous Windows 10) par corrélation avec des zones d'une capture.
   Outil du plugin copieur-universel (skills capture-bureau et reconstruire-appli, fidelite.md §11).
+  WINDOWS UNIQUEMENT : la police doit être installée sur le poste qui ouvre la page. Ailleurs (macOS, Linux),
+  la page s'arrête sur « Police … introuvable » : recadrer alors l'icône dans la capture (fidelite.md §8).
 
   Mode d'emploi :
   1. Copier ce fichier dans le dossier de travail (PAS dans le clone), là d'où les images de capture sont
      accessibles par un chemin relatif ; servir ce dossier sur un port libre :
-       py -m http.server 8794 --bind 127.0.0.1 --directory "<TRAVAIL>"
-     (en file://, le navigateur interdit de lire les pixels de l'image).
-  2. Ouvrir (navigateur intégré, ou Chrome/Edge headless + cdp_eval.py) :
+       python3 -m http.server 8794 --bind 127.0.0.1 --directory "$TRAVAIL"
+     (sous Windows, py remplace python3 ; en file://, le navigateur interdit de lire les pixels de l'image).
+  2. Ouvrir (navigateur intégré, ou Chrome/Edge headless lancé par headless.py + cdp_eval.py) :
        http://127.0.0.1:8794/glyphes.html?image=capture/u/fenetre-principale/01-fenetre.png
          &cibles=gras:652,56,34,32;italique:692,56,34,32
      cibles = nom:x,y,largeur,hauteur en pixels de l'image (une zone par icône, avec un peu de fond autour).
@@ -50,6 +52,18 @@
   };
   function fin(r) { resultat = r; document.title = 'fini'; attente.forEach(function (f) { f(JSON.stringify(r)); }); }
   function erreur(msg) { document.getElementById('etat').textContent = msg; fin({ erreur: msg }); }
+  var INTROUVABLE = 'Police « ' + POLICE + ' » introuvable sur ce poste (ses glyphes s\'affichent comme la police de remplacement). Outil Windows uniquement (Windows 11 : Segoe Fluent Icons ; Windows 10 : Segoe MDL2 Assets) ; sous macOS ou Linux, recadrer l\'icône dans la capture (fidelite.md §8).';
+  function policePresente() {
+    var cv = document.createElement('canvas'); cv.width = 64; cv.height = 64;
+    var g = cv.getContext('2d', { willReadFrequently: true });
+    function rendu(font, cp) {
+      g.fillStyle = '#000'; g.fillRect(0, 0, 64, 64); g.fillStyle = '#fff'; g.font = font; g.textBaseline = 'middle'; g.textAlign = 'center';
+      g.fillText(String.fromCodePoint(cp), 32, 32);
+      return Array.prototype.join.call(g.getImageData(0, 0, 64, 64).data, ',');
+    }
+    var essais = [0xE700, 0xE710, 0xE713, 0xE721].concat(PLAGES.map(function (p) { return p[0]; }));
+    return essais.some(function (cp) { return rendu('40px "' + POLICE + '", monospace', cp) !== rendu('40px monospace', cp); });
+  }
 
   function charger(src) { return new Promise(function (ok, ko) { var i = new Image(); i.onload = function () { ok(i); }; i.onerror = function () { ko(new Error('image illisible : ' + src)); }; i.src = src; }); }
   function masque(d, w, h, fond) {             // intensité = écart au fond (0..1)
@@ -77,9 +91,11 @@
   }
   (async function () {
     if (!Q.get('image') || !CIBLES.length) return erreur('Paramètres manquants : ?image=<chemin relatif du PNG>&cibles=nom:x,y,l,h;… (voir le commentaire en tête du fichier).');
-    if (location.protocol === 'file:') return erreur('Ouvrir cette page par un serveur local (py -m http.server …) : en file://, les pixels de l\'image ne sont pas lisibles.');
+    if (location.protocol === 'file:') return erreur('Ouvrir cette page par un serveur local (python3 -m http.server …) : en file://, les pixels de l\'image ne sont pas lisibles.');
     try { await document.fonts.load('40px "' + POLICE + '"'); } catch (e) { /* police absente : vérifiée ci-dessous */ }
-    if (!document.fonts.check('40px "' + POLICE + '"')) return erreur('Police « ' + POLICE + ' » introuvable sur ce poste (Windows 11 : Segoe Fluent Icons ; Windows 10 : Segoe MDL2 Assets).');
+    // document.fonts.check() répond true même pour une police inexistante : on compare le RENDU de quelques glyphes
+    // dans la police (repli monospace) à celui du seul repli monospace ; identiques partout = police absente.
+    if (!policePresente()) return erreur(INTROUVABLE);
     var img;
     try { img = await charger(Q.get('image')); } catch (e) { return erreur(e.message); }
     var cibles = CIBLES.map(function (c) {
@@ -91,13 +107,14 @@
     });
     var S = 48, cv = document.createElement('canvas'); cv.width = S * 2; cv.height = S * 2;
     var g = cv.getContext('2d', { willReadFrequently: true }); g.font = S + 'px "' + POLICE + '"'; g.textBaseline = 'middle'; g.textAlign = 'center';
-    var vus = 0;
+    var vus = 0, formes = {};
     PLAGES.forEach(function (p) {
       for (var cp = p[0]; cp <= p[1]; cp++) {
-        g.fillStyle = '#000'; g.fillRect(0, 0, S * 2, S * 2); g.fillStyle = '#fff'; g.fillText(String.fromCharCode(cp), S, S);
+        g.fillStyle = '#000'; g.fillRect(0, 0, S * 2, S * 2); g.fillStyle = '#fff'; g.fillText(String.fromCodePoint(cp), S, S);
         var d = g.getImageData(0, 0, S * 2, S * 2).data, m = masque(d, S * 2, S * 2, [0, 0, 0]), b = boite(m, S * 2, S * 2, 0.25);
         if (!b || b[2] < 3) continue; vus++;
         var v = normaliser(m, S * 2, S * 2, b);
+        formes[Array.prototype.map.call(v, function (x) { return Math.round(x * 8); }).join('')] = 1;
         cibles.forEach(function (c) {
           if (!c.v) return;
           var ra = (b[2] / b[3]) / (c.b[2] / c.b[3]); if (ra > 1.6 || ra < 0.62) return;   // proportions trop différentes
@@ -105,6 +122,8 @@
         });
       }
     });
+    // Garde-fou : des glyphes tous identiques (carré de remplacement) ou aucun = police absente, quoi qu'en dise le test.
+    if (!vus || Object.keys(formes).length < 2) return erreur(INTROUVABLE);
     function cls(s) { return s >= 0.75 ? 'bon' : s >= 0.55 ? 'moyen' : 'faible'; }
     var h = '<p>' + vus + ' glyphes non vides de « ' + POLICE + ' » comparés à ' + cibles.length + ' zone(s) de ' + Q.get('image') + '.</p><table><tr><th>icône</th><th>zone</th><th colspan="' + TOP + '">meilleurs glyphes (code, score)</th></tr>';
     cibles.forEach(function (c, i) {

@@ -1,23 +1,30 @@
 # -*- coding: utf-8 -*-
 """png_diff.py - comparer deux images PNG au pixel pres, sans dependance (Python standard).
 Outil du plugin copieur-universel (skill verifier-copie, references/methode.md section 6).
+Sous Windows, py remplace python3 (lanceur Python de Windows).
 
-  py png_diff.py diff ORIGINAL.png CLONE.png [--seuil 24] [--zone x,y,l,h] [--decalage dx,dy]
-                      [--out ecarts.png] [--json rapport.json]
-  py png_diff.py encre IMAGE.png --zone x,y,l,h [--seuil 40]     boite de l'« encre » (texte, icone) d'une zone
-  py png_diff.py couleur IMAGE.png x,y [x,y ...]                  couleur exacte de pixels
-  py png_diff.py info IMAGE.png                                   taille, type
+  python3 png_diff.py diff ORIGINAL.png CLONE.png [--seuil 24] [--zone x,y,l,h] [--decalage dx,dy]
+                           [--out ecarts.png] [--json rapport.json]
+  python3 png_diff.py encre IMAGE.png --zone x,y,l,h [--seuil 40]   boite de l'« encre » (texte, icone) d'une zone
+  python3 png_diff.py couleur IMAGE.png x,y [x,y ...]                couleur exacte de pixels
+  python3 png_diff.py info IMAGE.png                                 taille, type
 
 diff : pixels dont un canal differe de plus de --seuil (24 par defaut : absorbe l'anticrenelage leger),
 pourcentage, boite englobante, zones les plus touchees (grille de 64 px), ecart moyen par canal ; --out
 ecrit une image : pixels identiques en gris pale, pixels differents en rouge. --zone limite la comparaison
 (coordonnees de l'ORIGINAL) ; --decalage dx,dy compare original(x,y) a clone(x+dx,y+dy) (fenetre ou menu
-decale). Tailles differentes : comparaison sur la partie commune, signalee.
+decale). Les dossiers de --out et --json sont crees au besoin.
+Tailles differentes sans --zone : la partie commune est comparee, mais le resultat est « different » (code 1,
+« taillesDifferentes »: true dans le JSON) : un clone tronque, plus long, ou rendu a une autre echelle (DPR 2
+d'un ecran Retina contre DPR 1) n'est jamais identique. Avec --zone, la zone doit exister dans les deux images
+(sinon « zoneTronquee »: true et code 1).
 Les deux images doivent etre a la meme echelle : une capture a 125 % se compare a un rendu du clone fait au
 meme facteur (cdp_eval.py shot --viewport LxH@1.25). JPEG non pris en charge (convertir en PNG).
-Code de sortie : 0 identique (sous le seuil), 1 differences, 2 usage ou fichier illisible.
+Code de sortie : 0 identique (0 pixel au-dessus du seuil ET tailles identiques ; avec --zone, zone presente
+dans les deux images), 1 differences ou tailles differentes, 2 usage ou fichier illisible (PNG tronque compris).
 PNG lus : 8 bits, gris / gris+alpha / RVB / RVBA / palette, non entrelaces (Chrome, Edge, window_shot.ps1)."""
 import json
+import os
 import struct
 import sys
 import zlib
@@ -40,6 +47,8 @@ def load(path):
         c = d[i + 8:i + 8 + n]
         i += 12 + n
         if t == b'IHDR':
+            if len(c) != 13:
+                raise PngError('%s : en-tete PNG tronque (fichier incomplet ?)' % path)
             ihdr = struct.unpack('>IIBBBBB', c)
         elif t == b'PLTE':
             plte = c
@@ -56,8 +65,13 @@ def load(path):
         raise PngError('%s : PNG %d bits, type %d%s non pris en charge (8 bits non entrelace attendu)'
                        % (path, bd, ct, ', entrelace' if il else ''))
     bpp = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}[ct]
-    raw = zlib.decompress(b''.join(idat))
+    try:
+        raw = zlib.decompress(b''.join(idat))
+    except zlib.error as e:
+        raise PngError('%s : donnees d\'image illisibles (PNG tronque ou corrompu : %s)' % (path, e))
     stride = w * bpp
+    if len(raw) < h * (1 + stride):
+        raise PngError('%s : donnees d\'image incompletes (PNG tronque ?)' % path)
     rows = []
     prev = bytearray(stride)
     k = 0
@@ -125,8 +139,21 @@ def save(path, w, h, rows):
         return struct.pack('>I', len(c)) + t + c + struct.pack('>I', zlib.crc32(t + c) & 0xffffffff)
     data = (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0))
             + chunk(b'IDAT', zlib.compress(raw, 6)) + chunk(b'IEND', b''))
-    with open(path, 'wb') as f:
-        f.write(data)
+    ecrire(path, data)
+
+
+def ecrire(path, data):
+    """Ecrit un fichier (octets ou texte UTF-8) en creant son dossier au besoin (ex. <TRAVAIL>/verif/)."""
+    try:
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        if isinstance(data, str):
+            with open(path, 'w', encoding='utf-8', newline='\n') as f:
+                f.write(data)
+        else:
+            with open(path, 'wb') as f:
+                f.write(data)
+    except OSError as e:
+        raise PngError('ecriture impossible de %s (%s)' % (path, e))
 
 
 def parse_ints(s, n, what):
@@ -165,11 +192,26 @@ def cmd_diff(args):
     if zone:
         zx, zy, zw, zh = parse_ints(zone, 4, '--zone')
         x0, y0, x1, y1 = max(0, zx), max(0, zy), min(wa, zx + zw), min(ha, zy + zh)
+    demande = (x0, y0, x1, y1)
     x0, y0 = max(x0, -dx), max(y0, -dy)
     x1, y1 = min(x1, wb - dx), min(y1, hb - dy)
     notes = []
-    if (wa, ha) != (wb, hb):
-        notes.append('tailles differentes : %dx%d contre %dx%d (partie commune comparee)' % (wa, ha, wb, hb))
+    tailles_diff = (wa, ha) != (wb, hb)
+    # Sans --zone, des tailles differentes rendent le resultat « different » meme si la partie commune est
+    # identique (clone tronque, page plus courte, autre echelle). Avec --zone, la zone doit exister dans le clone.
+    zone_tronquee = bool(zone) and (x0, y0, x1, y1) != demande
+    incomplet = zone_tronquee if zone else tailles_diff
+    if tailles_diff:
+        msg = 'tailles differentes : %dx%d (original) contre %dx%d (clone)' % (wa, ha, wb, hb)
+        if wa and ha and abs(wb / wa - hb / ha) < 0.02 and abs(wb / wa - 1) > 0.02:
+            msg += ', rapport x%.2f : autre echelle (devicePixelRatio, capture Retina ?)' % (wb / wa)
+        if zone:
+            msg += ' ; seule la zone demandee compte'
+        else:
+            msg += ' ; partie commune comparee, mais le resultat ne peut pas etre « identique » (meme echelle et meme taille de page, ou --zone pour une partie)'
+        notes.append(msg)
+    if zone_tronquee:
+        notes.append('zone tronquee : elle depasse du clone (decalage compris) ; seule la partie presente dans les deux images est comparee, resultat « different »')
     if x1 <= x0 or y1 <= y0:
         raise PngError('aucune partie commune a comparer (zone ou decalage hors des images)')
     n_diff, total = 0, (x1 - x0) * (y1 - y0)
@@ -220,6 +262,9 @@ def cmd_diff(args):
     res = {
         'original': args[0], 'clone': args[1], 'seuil': seuil,
         'zone': [x0, y0, x1 - x0, y1 - y0], 'decalage': [dx, dy],
+        'tailles': {'original': [wa, ha], 'clone': [wb, hb]},
+        'taillesDifferentes': tailles_diff, 'zoneTronquee': zone_tronquee,
+        'identique': not n_diff and not incomplet,
         'pixelsDifferents': n_diff, 'pixelsCompares': total,
         'pourcentage': round(100.0 * n_diff / total, 3),
         'boite': ([box[0], box[1], box[2] - box[0] + 1, box[3] - box[1] + 1] if n_diff else None),
@@ -234,13 +279,14 @@ def cmd_diff(args):
              (' ; boite x=%d y=%d l=%d h=%d' % tuple(res['boite'])) if n_diff else '', res['ecartMoyen']))
     for z in res['zonesLesPlusTouchees'][:5]:
         print('  zone x %d-%d, y %d-%d : %d pixels' % (z['x'], z['x'] + 63, z['y'], z['y'] + 63, z['pixels']))
+    if incomplet:
+        print('DIFFERENT : %s (code 1)' % ('tailles differentes' if not zone else 'zone absente du clone en partie'))
     if out:
         save(out, x1 - x0, y1 - y0, vis)
         print('image des ecarts : %s (rouge = different)' % out)
     if rapport:
-        with open(rapport, 'w', encoding='utf-8') as f:
-            json.dump(res, f, ensure_ascii=False, indent=1)
-    return 1 if n_diff else 0
+        ecrire(rapport, json.dumps(res, ensure_ascii=False, indent=1))
+    return 1 if n_diff or incomplet else 0
 
 
 def cmd_encre(args):
@@ -305,7 +351,10 @@ def main():
     except (AttributeError, ValueError):
         pass
     args = sys.argv[1:]
-    if not args or args[0] in ('-h', '--help'):
+    if args and args[0] in ('-h', '--help'):
+        print(__doc__)
+        return 0
+    if not args:
         print(__doc__)
         return 2
     cmd = args.pop(0) if args[0] in ('diff', 'encre', 'couleur', 'info') else 'diff'

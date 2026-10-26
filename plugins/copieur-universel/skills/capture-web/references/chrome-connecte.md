@@ -70,10 +70,17 @@ l'échelle 0.1 coûtent peu : elles servent à déclencher le dessin, pas à doc
 
 ## 6. Injecter et configurer le kit
 
-1. Lire `OUTILS\capture-kit.js` (Read) et passer **tout** son contenu :
-   `javascript_tool { action: "javascript_exec", tabId, text: <contenu> }` → `kit ok`.
-2. Configurer une fois (conservé dans l'onglet) :
-   `__config({ keep: ['Prénom Nom', 'Organisation'], owner: 'titulaire@domaine.fr' })`.
+1. Lire `$OUTILS/capture-kit.js` (Read, chemin absolu, `allow_large: true` — le fichier dépasse ce qu'un Read
+   rend par défaut ; à défaut, tranches de 400 lignes jusqu'à la dernière, `})();`) et passer **tout** son
+   contenu, sans les numéros de ligne de Read :
+   `javascript_tool { action: "javascript_exec", tabId, text: <contenu> }` → exactement `kit ok` (sinon tranche
+   manquante ou numéro resté : relire et renvoyer).
+2. Configurer une fois (conservé dans l'onglet, **pour cette origine**) :
+   `__config({ keep: ['Prénom Nom', 'Organisation'], owner: 'titulaire@domaine.fr' })`. Le `sessionStorage` est
+   propre à l'origine : si l'appli passe sur un autre hôte (`admin.`, `www.`, page de compte sur un sous-domaine),
+   le kit, la config et le dictionnaire n'y sont pas — kit complet, `__config`, puis `__addNames` avec la même
+   liste (en général les mêmes faux noms : ils dérivent d'une empreinte du vrai nom) ; `__info().noms` à 0 =
+   dictionnaire vide.
 3. Après chaque navigation ou rechargement, réinjection courte (pas besoin de renvoyer les 85 Ko du kit) :
    ```js
    window.__dump ? 'kit ok' : (0, eval)(sessionStorage.getItem('copieur-kit') || "'kit absent'")
@@ -87,31 +94,48 @@ Plusieurs appels `javascript_tool` peuvent s'enchaîner dans un `browser_batch` 
 ## 7. Récupérer les dumps malgré le filtre de sortie
 
 Le filtre de l'extension tronque les réponses vers 1000 caractères et remplace par « [BLOCKED…] » ce qui ressemble
-à des cookies, des chaînes de requête ou du base64. Le kit contourne cela proprement : il échappe `§`→`(SECT)`,
-puis `;`→`§`, `&`→`(AMP)`, `?`→`(Q)`, et découpe en morceaux de ≤ 900 caractères.
+à des cookies, des chaînes de requête ou du base64. C'est un **garde-fou** : il ne se contourne pas. Le kit
+échappe `§`→`(SECT)`, puis `;`→`§`, `&`→`(AMP)`, `?`→`(Q)`, et découpe en morceaux de ≤ 900 caractères, parce que
+du HTML ordinaire (styles en ligne, liens déjà nettoyés) déclencherait sinon le filtre à tort. Ses masques
+(secrets connus, jetons longs, affectations `sessionid=…`/`token=…`, paramètres d'URL sensibles) ne reconnaissent
+pas tout : `laravel_session=a1b2c3d4e5f6` passe (testé). Un morceau bloqué est donc d'abord un **signal à
+examiner**.
 
 1. `__dump('main', 8)` → nombre de morceaux `N` (même logique pour `__styles()`, `__icons()`, `__chart(i)`).
 2. Récupérer par paquets : `window.__D.slice(0, 20)`, puis `window.__D.slice(20, 40)`… jusqu'à `N`.
-3. Morceau rendu « [BLOCKED…] » : le redemander en plus petit (`window.__D[7].slice(0, 300)`,
-   `window.__D[7].slice(300, 600)`…), ou redécouper tout le texte : `__dumpText(window.__H, 400)` puis reprendre
-   depuis le premier paquet (les paquets déjà écrits ne correspondent plus au nouveau découpage).
+3. Morceau rendu « [BLOCKED…] » (ici le n° 7) : **ne pas le redécouper aussitôt**.
+   - Le relire **masqué** (les valeurs ne sortent pas de la page) et y chercher `cookie`, `session`, `token`,
+     `auth`, une valeur après `=`, un long bloc base64 :
+     `window.__D[7].replace(/=[^\s"'<>§&()]{3,}/g, '=•••').replace(/[\w+\/-]{20,}={0,2}/g, '[•••]')`
+   - Donnée sensible trouvée → la masquer dans la page : `__mask('<sélecteur>')` pour un texte affiché, ou, sans
+     faire sortir la valeur, `(() => { const m = window.__H.match(/laravel_session=([^\s"'<>;&]+)/); return m ?
+     __addMap({[m[1]]: '•••'}) : 'rien' })()` (adapter le nom du paramètre) ; puis refaire `__dump` et reprendre
+     depuis le premier paquet. Noter dans `notes.md` ce qui a été masqué et où (« jeton de session masqué dans
+     le pied de page »), **jamais la valeur** : une valeur de session, un cookie ou un secret n'est jamais capturé.
+   - Seulement si rien de sensible n'apparaît (faux positif : longue classe, `data:` déjà raccourci) : le
+     redemander en plus petit (`window.__D[7].slice(0, 300)`, `window.__D[7].slice(300, 600)`…), ou redécouper tout
+     le texte : `__dumpText(window.__H, 400)` puis reprendre depuis le premier paquet (les paquets déjà écrits ne
+     correspondent plus au nouveau découpage). Toujours bloqué : laisser ce passage hors capture et le décrire.
 4. Écrire le fichier — méthode sûre pour les gros dumps : chaque paquet revient sous forme de **tableau JSON** ;
    le recopier **tel quel**, crochets et guillemets compris, sans rien inverser, dans un fichier numéroté
-   (outil Write) : `<CAP>\_tmp\dom-initial.01.json`, `.02.json`… (un morceau redemandé en plusieurs parts :
-   remettre dans le tableau la chaîne recomposée). Puis décoder tous les paquets d'un coup :
+   (outil Write) : `$CAP/_tmp/dom-initial.01.json`, `.02.json`… (un morceau redemandé en plusieurs parts :
+   remettre dans le tableau la chaîne recomposée). Puis décoder tous les paquets d'un coup (outil Bash ; `$CAP` =
+   chemin absolu du dossier de la page, écrit en entier ou défini dans le même appel ; le motif reste entre
+   guillemets, c'est Python qui le développe) :
+   ```bash
+   python3 -c "import sys,io,json,glob;f=sorted(glob.glob(sys.argv[1]));f or sys.exit('0 paquet trouve pour '+sys.argv[1]+' : verifier le chemin (barres /) et le nom des fichiers');s=''.join(''.join(json.load(io.open(x,encoding='utf-8'))) for x in f);s=s.replace(chr(167),';').replace('(SECT)',chr(167)).replace('(AMP)','&').replace('(Q)','?');io.open(sys.argv[2],'w',encoding='utf-8',newline='').write(s);print(len(f),'paquet(s),',len(s),'caracteres')" "$CAP/_tmp/dom-initial.*.json" "$CAP/dom-initial.html"
    ```
-   py -c "import sys,io,json,glob;f=sorted(glob.glob(sys.argv[1]));s=''.join(''.join(json.load(io.open(x,encoding='utf-8'))) for x in f);s=s.replace(chr(167),';').replace('(SECT)',chr(167)).replace('(AMP)','&').replace('(Q)','?');io.open(sys.argv[2],'w',encoding='utf-8',newline='').write(s);print(len(f),'paquet(s),',len(s),'caracteres')" "<CAP>\_tmp\dom-initial.*.json" "<CAP>\dom-initial.html"
+   Aucun paquet trouvé → message d'erreur, code 1 et aucun fichier écrit. Variante : écrire le **contenu** des
+   chaînes (sans les crochets ni les guillemets du tableau, `\"` redevenant `"`) bout à bout dans
+   `dom-initial.esc.txt`, puis :
+   ```bash
+   python3 -c "import sys,io;s=io.open(sys.argv[1],encoding='utf-8').read();s=s.replace(chr(167),';').replace('(SECT)',chr(167)).replace('(AMP)','&').replace('(Q)','?');io.open(sys.argv[2],'w',encoding='utf-8',newline='').write(s);print(len(s),'caracteres')" "$CAP/dom-initial.esc.txt" "$CAP/dom-initial.html"
    ```
-   Variante : écrire le **contenu** des chaînes (sans les crochets ni les guillemets du tableau, `\"` redevenant
-   `"`) bout à bout dans `dom-initial.esc.txt`, puis :
-   ```
-   py -c "import sys,io;p=sys.argv[1];s=io.open(p,encoding='utf-8').read();s=s.replace(chr(167),';').replace('(SECT)',chr(167)).replace('(AMP)','&').replace('(Q)','?');io.open(sys.argv[2],'w',encoding='utf-8',newline='').write(s)" "<CAP>\dom-initial.esc.txt" "<CAP>\dom-initial.html"
-   ```
-   Les deux commandes marchent telles quelles sous Git Bash, PowerShell et cmd (testées : fichier identique, à
-   l'octet près, à la sortie brute du même dump). Pour un petit dump, on peut écrire directement le HTML en
+   Testées sous macOS (zsh) sur des paquets fictifs : fichier identique, à l'octet près, au texte d'origine ;
+   sous Windows (Git Bash), `py` remplace `python3`. Pour un petit dump, on peut écrire directement le HTML en
    inversant les échappements soi-même — dans cet ordre : `§`→`;` d'abord, `(SECT)`→`§` ensuite.
 5. Contrôle : `[...window.__H].length` dans la page doit égaler le nombre de caractères affiché par la commande
-   (ou `py -c "import io,sys;print(len(io.open(sys.argv[1],encoding='utf-8').read()))" "<CAP>\dom-initial.html"`).
+   (ou `python3 -c "import io,sys;print(len(io.open(sys.argv[1],encoding='utf-8').read()))" "$CAP/dom-initial.html"`).
    Un écart = un morceau manquant ou mal recopié.
 
 Les petits résultats (`__info()`, `__overlays()`, `__guessNames()`) sont échappés de la même façon : penser à
@@ -120,7 +144,7 @@ inverser, notamment pour le **titre exact** de la page.
 ## 8. Images
 
 - `computer { action: "screenshot", tabId, save_to_disk: true }` → le résultat donne le chemin du fichier ; le
-  copier avec un nom parlant : `cp "<chemin renvoyé>" "<CAP>/01-haut.png"` (garder l'extension renvoyée).
+  copier avec un nom parlant : `cp "<chemin renvoyé>" "$CAP/01-haut.png"` (garder l'extension renvoyée).
 - Détails (icônes, infobulles, badges) : `computer { action: "zoom", region: [x0, y0, x1, y1], tabId,
   save_to_disk: true }` → `41-infobulle-<nom>-zoom.png`.
 - Toute la hauteur : `__steps()` donne les positions ; pour chacune, `__scroll(y)` puis image (enchaîner dans un
@@ -179,7 +203,7 @@ Pour cliquer, préférer une référence d'élément (`find` « Onglet Évèneme
 6. javascript_tool : __anonLive()         → zones éditables ou champ avec le focus signalés ? → __cover('<sélecteur>')
 7. javascript_tool : __steps()            → [0, 590, 1180, …]
 8. browser_batch   : __scroll(0) → screenshot save_to_disk → __scroll(590) → screenshot save_to_disk → …
-   puis cp de chaque fichier vers <CAP>/01-haut.png, 02-milieu.png, 03-bas.png ; Read de chaque image
+   puis cp de chaque fichier vers $CAP/01-haut.png, 02-milieu.png, 03-bas.png ; Read de chaque image
 9. javascript_tool : __dump('main', 8)    → N morceaux → __D.slice(0,20)… → dom-initial.esc.txt → décodage (§7)
 10. une fois par unité, DANS L'ÉTAT INITIAL (avant d'ouvrir quoi que ce soit) : __styles('body') → styles.css,
     __icons('body') → icones.txt, __chart() / __chart(i) → graphique-<nom>.txt ; puis les états (§11)
@@ -230,7 +254,9 @@ produit est capturée en premier.
 | Les actions vont dans un navigateur où l'utilisateur n'est pas connecté | plusieurs navigateurs reliés | `list_connected_browsers` → `select_browser` (§3) |
 | `tabs_context_mcp` ne renvoie plus d'onglet | groupe fermé | `createIfEmpty: true`, renaviguer, kit complet (§4) |
 | DOM vide, logo de chargement, mesures à 0 | fenêtre masquée : rien n'est dessiné | rituel de rendu (§5), un seul onglet au premier plan |
-| Réponse coupée, « [BLOCKED…] » | filtre de sortie | morceaux, paquets de 20, re-découpage (§7) |
+| Réponse coupée | limite de taille du filtre de sortie | morceaux, paquets de 20 (§7) |
+| « [BLOCKED…] » sur un morceau | le filtre a vu un cookie, un jeton, une chaîne de requête ou du base64 | relecture masquée, `__mask`/`__addMap`, nouveau `__dump` ; re-découpage seulement pour un faux positif ; jamais de valeur de session capturée (§7) |
+| `__info().noms` à 0, vrai nom revenu, après un passage sur un autre hôte | `sessionStorage` propre à l'origine | kit complet, `__config`, `__addNames` avec la même liste (§6) |
 | « Inspected target navigated or closed », kit disparu | rechargement (garde de route, nouvelle version) | réinjection courte ; naviguer avec `navigate`, jamais `history.pushState` |
 | `kit absent` à la réinjection courte | `sessionStorage` vidé ou nouvel onglet | fichier complet + `__config` |
 | Une modale n'apparaît pas dans `__dump('main')` | rendue dans un portail hors de `main` | `__dump('modal')` ou `__overlays()` + `__dump(i)` |

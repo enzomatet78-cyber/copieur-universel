@@ -2,7 +2,7 @@
 """uia_rects.py - rectangles d'un releve uia_dump.ps1 convertis en px CSS, pour les comparer au clone.
 Outil du plugin copieur-universel (skill verifier-copie, references/methode.md section 8).
 
-  py uia_rects.py uia-principale.json [profondeur=4] [--echelle 1.25] [--json]
+  python3 uia_rects.py uia-principale.json [profondeur=4] [--echelle 1.25] [--json]   (Windows : py)
 
 Chaque ligne : type, nom, x, y, largeur, hauteur en px CSS (px physiques / echelle du releve), relatifs au
 cadre visible de la fenetre, comme getBoundingClientRect() dans la fenetre du clone. A comparer a
@@ -20,7 +20,10 @@ def main():
     except (AttributeError, ValueError):
         pass
     args = [a for a in sys.argv[1:]]
-    if not args or args[0] in ('-h', '--help'):
+    if args and args[0] in ('-h', '--help'):
+        print(__doc__)
+        return 0
+    if not args:
         print(__doc__)
         return 2
     as_json = '--json' in args

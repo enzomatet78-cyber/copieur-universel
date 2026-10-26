@@ -9,7 +9,7 @@
  */
 (function copieurKit() {
   'use strict';
-  var VERSION = '2.1', W = window, D = document;
+  var VERSION = '2.2', W = window, D = document;
   var SEC = '\u00a7', BUL = '\u2022', ELL = '\u2026';
 
   /* ---------- utilitaires ---------- */
@@ -101,6 +101,9 @@
   var CARD = rx('(?<!\\d)(?:\\d[ -]?){12,18}\\d(?!\\d)', 'g', '\\b(?:\\d[ -]?){12,18}\\d\\b', 'g');
   var LONGTOK = rx('(?<![\\w-])[A-Za-z0-9_-]{32,}(?![\\w-])', 'g', '\\b[A-Za-z0-9_-]{32,}\\b', 'g');
   var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  /* affectation lisible d'un secret (sessionid=a1b2c3d4e5f6, csrftoken: ..., password=...) : seule la valeur est
+     masquee, si elle melange chiffres et lettres ou fait 16 caracteres au moins (« Session : Printemps » reste) */
+  var SECRET_KV = /\b((?:[a-z]*sess(?:ion)?[_-]?id|sid|token|(?:access|refresh|id|auth|csrf|xsrf)[_-]?token|api[_-]?key|client[_-]?secret|secret(?:[_-]?key)?|password|passwd|pwd)\s*[=:]\s*["']?)([A-Za-z0-9._~+\/%-]{6,}=*)/gi;
 
   function maskTok(s) {
     var p = (s.match(/^(?:[a-z]+_(?:live|test)_|[A-Za-z]+[_-]|https?:\/\/[^\/]+\/)/) || [s.slice(0, 4)])[0];
@@ -118,6 +121,7 @@
     if (!t || t.length < 12) return t;
     for (var i = 0; i < SECRETS.length; i++) t = t.replace(SECRETS[i], maskTok);
     if (media) return t;
+    t = t.replace(SECRET_KV, function (m, k, v) { return (/\d/.test(v) && /[a-z]/i.test(v)) || v.length >= 16 ? k + BUL.repeat(8) : m; });
     t = t.replace(IBAN, function (m) { return ibanOk(m) ? m.slice(0, 4) + ' ' + BUL.repeat(4) + ' ' + BUL.repeat(4) + ' ' + m.replace(/ /g, '').slice(-4) : m; });
     if (CARD) t = t.replace(CARD, function (m) { var d = m.replace(/\D/g, ''); return d.length >= 13 && luhn(d) ? BUL.repeat(4) + ' ' + BUL.repeat(4) + ' ' + BUL.repeat(4) + ' ' + d.slice(-4) : m; });
     if (LONGTOK) t = t.replace(LONGTOK, function (m) {
@@ -151,31 +155,46 @@
     A.e[low] = f; FAKES[f] = 1; DIRTY = true; return f;
   }
 
-  /* Chemins locaux qui revelent le nom de session Windows/macOS (Electron : vscode-file://.../c:/Users/<nom>/...,
-     messages d'erreur, chemins affiches) -> <dossier>/utilisateur. Seules les formes sans ambiguite sont visees
-     (lettre de lecteur, file://, /Users/<nom>/ en debut de texte) : une route web /users/42 reste intacte. */
-  var UPATH_KEEP = /^(?:public|default|default user|all users|shared|utilisateur|<utilisateur>|username|%username%|user)$/i;
+  /* Chemins locaux qui revelent le nom de session Windows/macOS (Electron : vscode-file://vscode-app/c:/Users/<nom>/...
+     sous Windows, vscode-file://vscode-app/Users/<nom>/... sous macOS, messages d'erreur, chemins affiches)
+     -> <dossier>/utilisateur. Masquees partout (texte, href/src, url() des styles) : lettre de lecteur, file://,
+     schema non web (vscode-file://, app://...) colle a /Users/<nom>/, /Users/<nom>/ suivi d'un dossier personnel
+     (Desktop, Documents, Library...) ou cache (.vscode). /Users/<nom>/ seul : masque dans le texte, et dans les URL
+     d'une page locale (file:, vscode-file:...) ; pas dans les href/src d'une page web, ou /Users/Edit/5 est une route. */
+  var UPATH_KEEP = /^(?:public|default|default user|all users|shared|guest|utilisateur|<utilisateur>|username|%username%|user)$/i;
   var UPATH_WIN = /([A-Za-z]:(?:\\{1,2}|\/)+(?:Users|Utilisateurs|Documents and Settings)(?:\\{1,2}|\/)+)([^\\\/\s"'<>|:*?]+)/gi;
   var UPATH_FILE = /(file:\/\/\/(?:Users|home)\/)([^\/\s"'<>]+)(?=\/)/g;
-  var UPATH_MAC = /((?:^|[\s"'(=])\/Users\/)([^\/\s"'<>]+)(?=\/)/g;
+  var UPATH_SCHEME = /(\b(?!(?:https?|wss?|ftp):)[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\/\s"'<>?#]*\/Users\/)([^\/\s"'<>]+)(?=\/)/g;
+  var UPATH_HOME = /(\/Users\/)([^\/\s"'<>]+)(?=\/(?:(?:Desktop|Documents|Downloads|Library|Pictures|Movies|Music|Applications|Public)(?![\w-])|\.[A-Za-z]))/g;
+  var UPATH_MAC = /((?:^|[\s"'(=:,;[`])\/Users\/)([^\/\s"'<>]+)(?=\/)/g;
   function upRep(m, a, nom) { return UPATH_KEEP.test(nom) ? m : a + 'utilisateur'; }
+  function upRepN(m, a, nom) { return /^\d+$/.test(nom) ? m : upRep(m, a, nom); }   /* /Users/42/ : identifiant de route */
   /* url = true : valeur d'attribut href/src (une route /Users/Edit/5 d'une appli web n'est pas un chemin local) */
   function userPath(t, url) {
     if (!t || !/users|home|utilisateurs|documents and settings/i.test(t)) return t;
-    t = t.replace(UPATH_WIN, upRep).replace(UPATH_FILE, upRep);
-    return url ? t : t.replace(UPATH_MAC, upRep);
+    t = t.replace(UPATH_WIN, upRep).replace(UPATH_FILE, upRep).replace(UPATH_SCHEME, upRep).replace(UPATH_HOME, upRepN);
+    return url && /^https?:$/.test(location.protocol) ? t : t.replace(UPATH_MAC, upRepN);
   }
+  // Numéro français : remplacé dans la plage de fiction de l'ARCEP de sa zone (01 99 00, 02 61 91, 03 53 01,
+  // 04 65 71, 05 36 49, 06 39 98 pour les mobiles), que scan_pii.py admet ; numéro nord-américain : 555-01xx ;
+  // ailleurs, keepN chiffres gardés.
+  var FR_FICTION = { 1: '19900', 2: '26191', 3: '35301', 4: '46571', 5: '53649', 6: '63998', 7: '63998' };
   function phoneRepl(keepN) {
     return function (m, off, str) {
       var digits = m.replace(/\D/g, '');
       if (digits.length < 8 || digits.length > 15 || FAKES[m]) return m;
       if (/^[\s\u00a0\u202f]?[\u20ac$\u00a3%]/.test(str.slice(off + m.length, off + m.length + 2))) return m;
       if (A.p[m]) return A.p[m];
-      var seed = h32(m), n = 0;
-      var f = m.replace(/\d/g, function (d) {
-        n++; if (n <= keepN) return d;
-        seed = (Math.imul(seed ^ (seed >>> 13), 1274126177) + 0x6d2b79f5) >>> 0; return String(seed % 10);
-      });
+      var seed = h32(m), n = 0, f;
+      var rnd = function () { seed = (Math.imul(seed ^ (seed >>> 13), 1274126177) + 0x6d2b79f5) >>> 0; return String(seed % 10); };
+      var fr = /^(0|33|0033)([1-7])\d{8}$/.exec(digits), na = /^(1?)(\d{3})\d{7}$/.exec(digits), t = '', i = 0;
+      if (fr) t = fr[1] + FR_FICTION[fr[2]] + rnd() + rnd() + rnd() + rnd();
+      else if (na && (na[1] || /^\+?1?[\s.(-]*\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}$/.test(m))) t = na[1] + na[2] + '55501' + rnd() + rnd();
+      if (t) {
+        f = m.replace(/\d/g, function () { return t[i++]; });
+      } else {
+        f = m.replace(/\d/g, function (d) { n++; return n <= keepN ? d : rnd(); });
+      }
       if (f === m) f = f.slice(0, -1) + ((+f.slice(-1) + 1) % 10);
       A.p[m] = f; FAKES[f] = 1; DIRTY = true; return f;
     };
@@ -742,7 +761,8 @@
       keep.push('/* ' + ELL + ' section 1 tronqu\u00e9e : ' + (S1.length - keep.length) + ' r\u00e8gle(s) omise(s) sur ' + (S1.length - 1) + ' (limite ' + max + ' caract\u00e8res) : __styles(racine, {max: 0}) ou mode raw */');
       s1 = keep.join('\n');
     }
-    return head0 + '\n' + s1 + '\n' + tail;
+    /* chemins locaux restes dans les regles, les styles calcules (url absolue) et l'en-tete (origine de la page) */
+    return userPath(head0 + '\n' + s1 + '\n' + tail, true);
   }
 
   /* ---------- icônes ---------- */
@@ -870,7 +890,10 @@
   function big(s) { return dumpText(s); }
 
   /* ---------- noms probables ---------- */
-  var NAME_LIKE = rx("^\\p{Lu}[\\p{Ll}'\\u2019-]+\\.?(?:\\s+(?:(?:de|du|des|la|le|van|von|der|den|da|di|dos|del|el|al|bin|ben)\\s+)?(?:\\p{Lu}[\\p{Ll}'\\u2019-]+|\\p{Lu}{3,}|\\p{Lu}\\.)){1,3}$", 'u');
+  /* mot : Jean, Jean-Pierre, Curie-Test (au plus 3 segments ; apres le trait d'union, 3 lettres au moins pour
+     ecarter Pop-Up, Check-In) ; nom en capitales : DURAND, MARTIN-DURAND ; particules : de, de la, van der */
+  var NAME_W = "\\p{Lu}[\\p{Ll}'\\u2019]+(?:-\\p{Lu}?[\\p{Ll}'\\u2019]{2,}){0,2}", NAME_UP = "\\p{Lu}{3,}(?:-\\p{Lu}{2,}){0,2}";
+  var NAME_LIKE = rx("^" + NAME_W + "\\.?(?:\\s+(?:(?:de|du|des|la|le|van|von|der|den|da|di|dos|del|el|al|bin|ben)\\s+){0,2}(?:" + NAME_W + "|" + NAME_UP + "|\\p{Lu}\\.)){1,3}$", 'u');
   var CTX_RX = /avatar|user|name|member|membre|contact|guest|invit|lead|owner|assign|host|profile|profil|person|customer|client|attendee|sender|recipient|participant|author|auteur|closer|setter|people|team|equipe|agent/i;
   function guessNames(root) {
     prep(); var r = resolve(root || 'body'); if (!r) return notFound(root);

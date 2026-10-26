@@ -52,11 +52,12 @@ les routes des 16 entrées), `settings-workspace`, `settings-tracking`, `setting
 Écrit pendant la fondation (squelette par l'agent principal, complété par le constructeur de la fondation), dans
 le dossier de travail. Tous les agents le lisent en premier. Il contient :
 1. **Le projet** : dossier du clone, URL locale (serveur déjà lancé, ne pas le relancer), URL ou programme
-   original, correspondance route → fichier (`/app/x` → `<CLONE>\app\x\index.html` ; écran de logiciel →
-   `<CLONE>\ecrans\<ecran>\index.html`), pages déjà validées à ne pas toucher, page de référence à ouvrir comme
-   modèle ; pour un logiciel, le **PID et le handle** de l'instance lancée pour la capture (relevés au lancement
-   dans le `notes.md` de la capture ; les agents visent ce PID, jamais une instance de l'utilisateur), son port
-   de débogage s'il y en a un ; pour un site public capturé en headless, le port du navigateur.
+   original, correspondance route → fichier (`/app/x` → `<CLONE>/app/x/index.html` ; écran de logiciel →
+   `<CLONE>/ecrans/<ecran>/index.html`), pages déjà validées à ne pas toucher, page de référence à ouvrir comme
+   modèle ; pour un logiciel, le **PID et le handle** (handle : Windows seulement) de l'instance lancée pour la
+   capture et son profil temporaire (relevés au lancement dans le `notes.md` de la capture ; les agents visent ce
+   PID, jamais une instance de l'utilisateur), son port de débogage s'il y en a un ; pour un site public capturé
+   en headless, le port et le profil du navigateur.
 2. **Le gabarit de page exact** (copier-coller) : `<head>` (polices, Tailwind et sa configuration, feuille de la
    coque), structure du `<body>` (conteneurs de la navigation et du contenu principal, attributs comme
    `data-nav`), scripts (données fictives, coque, section, script de page).
@@ -135,30 +136,34 @@ Le gabarit est dans `assets/workflow-template.js` (ASCII pur). Il enchaîne : [F
 1. Faire le cadrage, la reconnaissance (inventaire + unités) et lancer le serveur local du clone.
 2. Écrire le squelette du GUIDE du projet dans le dossier de travail.
 3. Si l'appli est connectée : l'utilisateur ouvre l'appli dans son Chrome et s'y connecte lui-même.
-   Si c'est un site public capturé en headless : `OUTILS\headless.ps1 -Action lancer -Port 9333`
-   (`capture-web/references/sites-publics.md`), noter port et profil, `cdpPort` = ce port ; le fermer à la fin
-   avec `-Action fermer`.
+   Si c'est un site public capturé en headless : `python3 "$OUTILS/headless.py" lancer --port 9333`
+   (`capture-web/references/sites-publics.md`), noter port et profil (ligne JSON), `cdpPort` = ce port ; le
+   fermer à la fin avec `python3 "$OUTILS/headless.py" fermer --profil "<profil noté>" --port 9333` (Windows :
+   `headless.ps1` reste disponible, mêmes actions).
    Si c'est un logiciel : le lancer selon `capture-bureau` (profil temporaire, mises à jour automatiques
-   bloquées, port de débogage pour Electron ; application du Store sans fichier) et noter son **PID et le
-   handle de sa fenêtre dans le GUIDE** : les prompts du gabarit y renvoient.
+   bloquées, port de débogage pour Electron ; application du Store sans fichier ; sous macOS, le binaire
+   `<App>.app/Contents/MacOS/<exe>` lui-même, jamais `open -a`) et noter son **PID et le handle de sa fenêtre
+   dans le GUIDE** (sous macOS : le PID donné par `& echo $!`, sans handle) : les prompts du gabarit y
+   renvoient.
 4. Copier le gabarit dans le dossier de travail.
 
 ### Paramétrer : `CONFIG`
 | Champ | Rôle |
 |---|---|
 | `appli` | nom de l'appli tel que l'utilisateur la désigne |
-| `mode` | `web-connecte`, `web-public`, `electron` ou `natif` (choisit le skill de capture et les règles) |
+| `mode` | `web-connecte`, `web-public`, `electron` ou `natif` (choisit le skill de capture et les règles ; `natif` = Windows uniquement, refusé ailleurs ; Electron/CEF/NW.js sous macOS = `electron`) |
 | `original` | URL de base, ou processus / titre de fenêtre / chemin de l'exe |
 | `projet`, `urlLocale` | dossier du clone et son URL locale (serveur déjà lancé) |
 | `travail` | dossier de travail hors du clone (captures, GUIDE) |
-| `skills` | dossier `skills` du plugin = `<Base directory de copier-une-appli>\..` en chemin absolu |
-| `outils`, `captures`, `guide` | facultatifs : déduits (`<plugin>\outils`, `<travail>\capture`, `<travail>\GUIDE.md`) |
+| `skills` | dossier `skills` du plugin = `<Base directory de copier-une-appli>/..` en chemin absolu |
+| `outils`, `captures`, `guide` | facultatifs : déduits (`<plugin>/outils`, `<travail>/capture`, `<travail>/GUIDE.md`) |
+| `plateforme`, `python` | facultatifs : déduits des chemins — `windows` et `py` si un chemin a un antislash ou une lettre de lecteur (`C:/…`), sinon `macos` et `python3` (mettre `linux` à la main) |
 | `viewport` | viewport ou taille de fenêtre de référence (ex. `1536x791`) |
 | `garder` | ce qui reste réel : titulaire du compte, son email, son organisation |
-| `domainesFictifs` | domaines des emails fictifs autorisés par `scan_pii.py` |
-| `cdpPort` | port de débogage (Electron, Chrome headless) — habitudes du plugin : 9229 pour Electron, 9333 pour Chrome headless |
+| `domainesFictifs` | motifs des domaines d'emails fictifs autorisés par `scan_pii.py` (défaut `["exemple.*"]`, passés entre guillemets) |
+| `cdpPort` | port de débogage (Electron, Chrome headless) ; `0` = habitude du plugin selon le mode : 9229 pour `electron`, 9333 pour `web-public` |
 | `pageReference` | route de la page de référence validée (modèle de qualité) |
-| `fondation` | `{ faite, arreterApres, unite }` : `faite: false` + `unite` (= contenu de `fondation.json` écrit par `reconnaissance-appli`) = le script fait la fondation |
+| `fondation` | `{ faite, arreterApres, unite, resultat }` : `faite: false` + `unite` (= contenu de `fondation.json` écrit par `reconnaissance-appli`) = le script fait la fondation ; `resultat` = champ `fondation` du lancement précédent, à repasser à la relance |
 | `verifAdverseUnites` | `true` = vérifications par angle + adverses pour chaque unité (≈ 4 fois plus d'agents) |
 | `appliquerDemandesCoque` | `true` = agent final qui applique `shellIssues` / `sectionIssues` |
 
@@ -166,24 +171,28 @@ Le gabarit est dans `assets/workflow-template.js` (ASCII pur). Il enchaîne : [F
 Chaque unité : `key` (unique ; lettres ASCII, chiffres, `.`, `_`, `-` : elle sert de nom de dossier), `section`,
 `owner` (une seule par section), `shared` (si propriétaire), `nav` (clé de navigation active), `routes`, `notes`
 — c'est le format d'`unites.json` produit par `reconnaissance-appli`. Supprimer les exemples (`exemple: true`) : le
-script refuse de démarrer tant qu'ils sont là, comme il refuse tout `A_REMPLIR`, un mode inconnu, une `key`
-invalide ou en double, deux propriétaires dans une section, ou des `args` passés sous forme de chaîne illisible —
-avant de lancer le moindre agent.
+script refuse de démarrer tant qu'ils sont là, comme il refuse tout `A_REMPLIR`, un mode inconnu (ou `natif`
+hors Windows), une `key` invalide ou en double (unités et `fondation.unite`), des `routes` qui ne sont pas un
+tableau, deux propriétaires dans une section, un `domainesFictifs` ou des `args.units` qui ne sont pas des
+tableaux, ou des `args` passés sous forme de chaîne illisible — avant de lancer le moindre agent. Il signale
+aussi dans le journal la plateforme, l'interpréteur Python et le port retenus, et une `pageReference` vide.
 
 ### Lancer
 Deux façons, au choix :
 - éditer `CONFIG` et `UNITS` dans la copie (en restant en ASCII : voir section 10), puis
-  `Workflow({ scriptPath: "<travail>\\workflow.js" })` ;
+  `Workflow({ scriptPath: "<travail>/workflow.js" })` ;
 - laisser la copie intacte et passer les paramètres en `args` (objets JSON réels, pas une chaîne) :
   ```
-  Workflow({ scriptPath: "<travail>\\workflow.js", args: {
-    config: { appli: "...", mode: "web-connecte", original: "https://...", projet: "C:\\...\\clone",
-              urlLocale: "http://localhost:8770", travail: "C:\\...\\travail",
-              skills: "C:\\...\\plugins\\copieur-universel\\skills",
+  Workflow({ scriptPath: "<travail>/workflow.js", args: {
+    config: { appli: "...", mode: "web-connecte", original: "https://...", projet: "/Users/<moi>/clones/x",
+              urlLocale: "http://localhost:8770", travail: "/Users/<moi>/travail/x",
+              skills: "/Users/<moi>/.claude/plugins/cache/copieur-universel/copieur-universel/<version>/skills",
               garder: ["Prénom Nom", "email@domaine.fr", "Organisation"], pageReference: "/app/accueil" },
     units: [ { key: "...", section: "...", owner: true, shared: "...", nav: "...", routes: ["..."], notes: "..." } ]
   } })
   ```
+  Sous Windows, chemins `"C:\\...\\clone"` (antislashs doublés) ou `"C:/.../clone"` : `plateforme` et `python`
+  sont alors déduits (`windows`, `py`).
   `args.config` est fusionné dans `CONFIG` (et `args.config.fondation` dans `CONFIG.fondation`) ;
   `args.units` remplace `UNITS` s'il est non vide.
 
@@ -194,7 +203,9 @@ Deux façons, au choix :
   `resumeFromRunId` — même script + mêmes `args` = les résultats déjà obtenus sont rejoués depuis le cache, seul
   ce qui manque est relancé.
 - Avec `fondation.faite: false` et `arreterApres: true`, le script s'arrête après la fondation : montrer la page
-  de référence à l'utilisateur, puis relancer avec `fondation.faite: true` et `pageReference` renseigné.
+  de référence à l'utilisateur, puis relancer avec `fondation.faite: true`, `pageReference` renseigné et
+  `fondation.resultat` = le champ `fondation` du retour (ses `shellIssues` / `sectionIssues` restants vont
+  alors à l'agent Coque).
 
 ### Lire le résultat
 Le script renvoie : `unites` (pages capturées et statuts, pages construites, nombre de corrections et écarts
@@ -205,6 +216,9 @@ vérification adverse les angles non vérifiés ou les écarts non tranchés fig
 Le compte rendu à l'utilisateur reprend les écarts restants et les demandes écartées, honnêtement.
 
 ## 8. Sans Workflow : la même méthode avec l'outil Agent
+
+C'est aussi la voie d'une appli macOS native, qui n'a pas de mode dans le gabarit (`natif` = Windows
+uniquement) : captures d'images seulement, fidélité réduite annoncée (`SKILL.md`, étape 2).
 
 1. Fondation dans la session principale (ou un agent), puis deux agents de vérification successifs.
 2. Pour chaque unité, **dans l'ordre** : lancer l'agent de capture et **attendre sa fin** avant la capture
@@ -241,11 +255,12 @@ lui demander plutôt une vraie passe indépendante.
 
 Un script lancé via `scriptPath` qui contient des accents peut être refusé (« control characters »). Écrire le
 script avec accents dans un fichier source, puis produire la version ASCII avec ce petit script Python
-(enregistrer sous `escape_ascii.py`, lancer `py escape_ascii.py source.js workflow.js`) :
+(enregistrer sous `escape_ascii.py`, lancer `python3 escape_ascii.py source.js workflow.js` ; sous Windows,
+`py` remplace `python3`) :
 
 ```python
 # Echappe tout caractere non ASCII d'un script JS en sequences d'echappement unicode JS.
-# Messages en ASCII : une console Git Bash en cp1252 afficherait mal les accents.
+# Messages en ASCII : une console Windows (Git Bash en cp1252) afficherait mal les accents.
 import re, sys
 BS = chr(92)  # antislash
 src, dst = sys.argv[1], sys.argv[2]
@@ -268,5 +283,5 @@ open(dst, 'w', encoding='ascii', newline='\n').write(''.join(esc(c) for c in s))
 ```
 
 Écrire les commentaires du script sans accents (ils ne sont pas interprétés : une séquence échappée y resterait
-illisible), et doubler les antislashs des chemins Windows dans les chaînes (`'C:\\dossier'`). Alternative : passer
-le script **en ligne** avec le paramètre `script` du Workflow.
+illisible), et doubler les antislashs des chemins Windows dans les chaînes (`'C:\\dossier'` ; chemins macOS en
+`/` : rien à doubler). Alternative : passer le script **en ligne** avec le paramètre `script` du Workflow.

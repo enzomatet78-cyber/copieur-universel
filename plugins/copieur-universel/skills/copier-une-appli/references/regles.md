@@ -94,26 +94,37 @@ copie ne vaut pas ce risque.
   adresses IP, messages, notes, enregistrements, montants individuels.
 - L'**anonymisation se fait AVANT** toute capture d'écran et tout dump (kit : `__addNames([...])` puis
   `__anonLive()` ; le dump anonymise un clone du DOM). Chaque image est contrôlée ; si une donnée réelle reste
-  visible, on complète l'anonymisation et on refait l'image.
+  visible, on complète l'anonymisation et on refait l'image. Seule exception : les captures de forçage du rendu
+  à l'échelle 0.1 du mode connecté (juste après une navigation), jamais enregistrées (sans `save_to_disk`) ni
+  décrites.
 - **On peut garder**, si l'utilisateur le veut : le titulaire du compte (son nom, son email, son organisation),
   les réglages propres au compte (noms d'évènements, de workflows, de produits, d'étapes, de champs), les chiffres
   agrégés (totaux, pourcentages) — ce ne sont pas des données sur des tiers.
 - **Secrets jamais copiés** : clés API, jetons, mots de passe, webhooks, numéros de carte, IBAN → s'ils sont
   visibles, masqués localement avant la capture ; dans le clone, valeurs fictives masquées
   (ex. `sk_live_••••••••3f9a`).
-- Les chemins locaux de la machine (`C:\Users\<nom>\…`, fréquents dans le DOM d'une appli Electron) révèlent
-  le nom de session : le kit les remplace par `…\utilisateur\…`, `scan_pii.py` les signale.
+- **Morceau « [BLOCKED…] »** (filtre de sortie de Claude in Chrome) : ne pas le redécouper tout de suite. Relire
+  d'abord ce morceau, y chercher cookie, session, jeton, « = » ou base64, masquer la valeur (`__mask` ou
+  `__addMap`), et seulement ensuite le redemander. Une valeur secrète ou de session n'est jamais capturée : la
+  noter dans `notes.md` (« jeton masqué »). Le découpage en morceaux sert la limite de taille, pas à faire
+  passer un secret.
+- Les chemins locaux de la machine (`C:\Users\<nom>\…` sous Windows, `/Users/<nom>/…` sous macOS, fréquents
+  dans le DOM d'une appli Electron) révèlent le nom de session : le kit les remplace par `…\utilisateur\…` ou
+  `/Users/utilisateur/…`, `scan_pii.py` les signale.
 - Données fictives **déterministes** (générateur à graine fixe) : mêmes valeurs à chaque chargement, donc
   vérifiables.
-- Contrôle final obligatoire : `py "<OUTILS>\scan_pii.py" --root "<CLONE>" --allow "<email gardé>"
-  --allow-domain exemple.com` ; un code retour non nul se traite avant la livraison.
+- Contrôle final obligatoire : `python3 "$OUTILS/scan_pii.py" --root "<CLONE>" --allow "<email gardé>"
+  --allow-domain "exemple.*"` (motif entre guillemets ; sous Windows, `py` remplace `python3`) ; un code retour
+  non nul se traite avant la livraison.
 - Les dossiers de capture restent dans le dossier de travail, hors du clone livré.
 
 ## 6. Logiciels de bureau
 
 - Lancer l'appli avec un **profil ou dossier de données temporaire** quand c'est possible
   (Electron/Chromium : `--user-data-dir=<dossier temporaire>`), pour ne pas toucher aux données ni à la session
-  de l'utilisateur. Si ce n'est pas possible, le dire et rester en lecture seule stricte.
+  de l'utilisateur. Si ce n'est pas possible, le dire et rester en lecture seule stricte. Sous macOS, lancer le
+  binaire `<App>.app/Contents/MacOS/<exe>` lui-même et noter `$!` : jamais `open -a`, qui peut confier la
+  demande à l'instance déjà ouverte par l'utilisateur et ne donne aucun PID.
 - Ne rien enregistrer, ne pas modifier les préférences, ne pas ouvrir les documents personnels de
   l'utilisateur ; pour montrer un état « document ouvert », utiliser un document vierge ou fictif créé pour
   l'occasion dans le dossier de travail — sauf pour une appli du Store qui restaure sa session (Bloc-notes de
@@ -122,16 +133,25 @@ copie ne vaut pas ce risque.
   l'utilisateur.
 - **Mises à jour automatiques bloquées** dans le profil temporaire avant le lancement quand l'appli le permet :
   une appli lancée pour la capture peut installer sa nouvelle version et modifier l'installation de
-  l'utilisateur (vu avec VS Code). Ne jamais interrompre un installeur en cours ; le signaler.
+  l'utilisateur (vu avec VS Code). Ne jamais interrompre un installeur en cours (sous macOS : `ShipIt`, de
+  Squirrel.Mac) ; le signaler.
 - Fermer les menus et boîtes de dialogue par Échap ou Annuler ; ne jamais répondre « Enregistrer ».
 - **Ne fermer que les processus qu'on a lancés** (noter leur PID au lancement) ; jamais une instance déjà ouverte
-  par l'utilisateur. Pour la même raison, les relevés visent ce PID (`-ProcessId`) plutôt qu'un nom de
-  processus, qui pourrait désigner la fenêtre de l'utilisateur et ses documents.
-- **Navigateur piloté pour un site public** : Chrome/Edge seulement en `--headless=new` avec
-  `--user-data-dir=<dossier temporaire>` ; sous Windows, un `chrome.exe` lancé sans ces options s'ouvre dans le
-  navigateur de l'utilisateur, avec ses sessions.
+  par l'utilisateur. Pour la même raison, les relevés visent ce PID (`-ProcessId` sous Windows ; sous macOS,
+  `ps -p <PID>` et les fenêtres de ce PID) plutôt qu'un nom de processus, qui pourrait désigner la fenêtre de
+  l'utilisateur et ses documents. Sous macOS : `kill <PID>` (SIGTERM) ; jamais `kill -9` sur tout un arbre, ni
+  `pkill` par nom.
+- **Navigateur lancé par l'agent** (site public, vérifications) : Chrome/Edge seulement en `--headless=new` avec
+  `--user-data-dir=<dossier temporaire>` — `headless.py` le fait, sous Windows comme sous macOS. Tout autre
+  lancement s'ouvre dans le navigateur de l'utilisateur, avec ses sessions : `chrome.exe` sans ces options,
+  `open -a "Google Chrome"`, le binaire `…/Contents/MacOS/Google Chrome` sans profil temporaire. Seule
+  exception : le lanceur livré avec le clone (`lancer-app.cmd`, ou `lancer-app.command` par `open -na`), qui
+  ouvre une fenêtre `--app` sur un profil propre au clone. Nettoyage : seulement un dossier `cu-*` directement
+  dans le dossier temporaire du système (`headless.py fermer`).
 - `uia_dump.ps1` sans `-IncludeValues` par défaut : les champs peuvent contenir des données personnelles.
 - Aucune modification système (registre, services, pare-feu, réglages de sécurité) pour faciliter la capture.
+  Sous macOS, les permissions Accessibilité et Enregistrement de l'écran sont accordées par l'utilisateur
+  lui-même (Réglages Système), jamais par l'agent ; sans elles, on décrit ce qu'on ne peut pas relever.
 
 ## 7. Tiers et légalité
 
@@ -149,4 +169,5 @@ copie ne vaut pas ce risque.
 > supprimer, envoyer, connecter, payer ; ne rien taper ; en cas de doute, ne pas cliquer). L'agent ne saisit
 > jamais d'identifiants. Données personnelles anonymisées avant toute capture ; secrets jamais copiés. Logiciels :
 > profil temporaire, mises à jour bloquées, rien enregistrer, pas de fichiers récents, ne fermer que ce qu'on a
-> lancé (jamais un installeur en cours).
+> lancé (jamais un installeur en cours). Navigateur lancé par l'agent : headless sur profil temporaire
+> uniquement (jamais `open -a`).
