@@ -2,9 +2,9 @@
  *
  * A injecter TEL QUEL dans un onglet de l'appli a copier (reponse attendue : "routes ok") :
  *   - Claude in Chrome / navigateur integre : javascript_tool avec le contenu du fichier ;
- *   - CDP (Chrome headless, Electron, WebView2) :
- *       py cdp_eval.py --port 9222 eval --target 0 --file routes-from-bundle.js
- *          --expr "__routes({prefix:'/app'})" --out routes.json
+ *   - CDP (Chrome headless, Electron, WebView2 ; sous Windows, py remplace python3) :
+ *       python3 "$OUTILS/cdp_eval.py" --port 9222 eval --target 0 --file "$OUTILS/routes-from-bundle.js"
+ *          --expr "__routes({prefix:'/app'})" --out "$TRAVAIL/routes.json"
  *
  * LECTURE SEULE. Le kit ne lit que le DOM et des fichiers statiques (JS/JSON) deja references par la page,
  * sur l'origine de la page ou celle de ses propres bundles, avec le cache du navigateur. Il n'appelle
@@ -29,10 +29,12 @@
  *                        accordeons, declencheurs de modales, boutons a NE PAS cliquer, formulaires, tableaux,
  *                        infobulles, conteneur defilant (emails/telephones masques, textes tronques)
  *   __routeStatus(attendue) -> apres une navigation : route finale, titre, 404 ?, connexion ?, redirection ?
+ *                        (routeur a hachage : '#/x' ou '/index.html#/x' ; le #/route compte dans la comparaison)
  *   __out(valeur, taille) -> JSON (ou texte) echappe et decoupe en morceaux <= 900 caracteres dans window.__R ;
  *                        renvoie le nombre de morceaux. Recuperer ensuite window.__R.slice(0, 20)...
- *                        Echappements (filtre de sortie de Claude in Chrome), a inverser en ecrivant les fichiers :
- *                        ';' -> U+00A7 (paragraphe)   '&' -> '(AMP)'   '?' -> '(Q)'
+ *                        Echappements (filtre de sortie de Claude in Chrome), les memes que capture-kit.js :
+ *                        U+00A7 deja present -> '(SECT)', puis ';' -> U+00A7 (paragraphe)   '&' -> '(AMP)'   '?' -> '(Q)'
+ *                        A inverser en ecrivant les fichiers, dans cet ordre : U+00A7 -> ';' d'abord, '(SECT)' -> U+00A7 en dernier.
  *
  * Sans "await" (Claude in Chrome) :  __routes({prefix:'/app'}); 'lance'
  *   puis interroger window.__ROUTES_STATE jusqu'a 'fini', puis __out(__routesText()) et window.__R.slice(0, 20).
@@ -44,7 +46,8 @@
   var VERSION = '1.0';
 
   /* ------------------------------------------------------------------ utilitaires */
-  function esc(s) { return String(s).replace(/;/g, '\u00a7').replace(/&/g, '(AMP)').replace(/\?/g, '(Q)'); }
+  /* un U+00A7 d'origine devient '(SECT)' AVANT que ';' devienne U+00A7 : l'inversion reste exacte (comme capture-kit.js) */
+  function esc(s) { return String(s).replace(/\u00a7/g, '(SECT)').replace(/;/g, '\u00a7').replace(/&/g, '(AMP)').replace(/\?/g, '(Q)'); }
   W.__out = function (data, size) {
     size = size || 900;
     var s = esc(typeof data === 'string' ? data : JSON.stringify(data));
@@ -82,6 +85,16 @@
     if (p.length > 1) p = p.replace(/\/+$/, '');
     return p;
   }
+  /* chemin + route a hachage ('/index.html#/x', '#!/x') : normRoute coupe au '#', ce qui confondait toutes les
+     routes d'un routeur a hachage. Une simple ancre (#section) est ignoree ; '#x' seul = page courante. */
+  function normFull(p) {
+    p = String(p == null ? '' : p);
+    if (p[0] === '#') p = location.pathname + p;
+    var i = p.indexOf('#'), h = i >= 0 ? p.slice(i + 1) : '';
+    var base = normRoute(i >= 0 ? p.slice(0, i) : p);
+    return /^!?\//.test(h) ? base + '#' + normRoute(h.replace(/^!/, '')) : base;
+  }
+  function hashRoute() { return /^#!?\//.test(location.hash) ? location.hash : ''; }
   function plausibleAbs(p) {
     if (!p || p[0] !== '/' || p.length > 160) return false;
     if (p === '/') return true;
@@ -486,8 +499,10 @@
       var dyn = byKind.route.concat(byKind.link).filter(function (it) { return /[:*\[]/.test(it.p); }).map(function (it) { return it.p; });
       var scr = Object.keys(screens).sort();
       /* routes a ne jamais visiter pendant la reconnaissance (effet de bord possible, meme en simple GET :
-         deconnexion, flux OAuth, telechargement, changement d'espace de travail...) */
-      var RISKY = /(?:^|\/)(?:log-?out|sign-?out|deconnexion|disconnect|delete|remove|destroy|unsubscribe|subscribe|cancel|checkout|pay(?:ment)?|purchase|buy|order|upgrade|downgrade|reset|revoke|impersonate|invite|accept|confirm|verify|activate|deactivate|close-account|leave|connect|oauth2?|authorize|callback|install|uninstall|export|download|sync|approve|reject|refund|transfer|claim|redeem|join|switch)(?:\/|$|[-_])/i;
+         deconnexion, flux OAuth, telechargement, changement d'espace de travail...). Segment = verbe seul, ou verbe
+         suivi de -/_ (sauf vue de consultation : order-history, test-results, payment-details...).
+         Filtre HEURISTIQUE : un segment verbal absent de la liste se soumet a l'utilisateur avant visite. */
+      var RISKY = /(?:^|\/)(?:log-?out|log-?off|sign-?out|deconnexion|se-deconnecter|disconnect|delete|remove|destroy|supprimer|unsubscribe|subscribe|desabonnement|desinscription|cancel|annuler|resilier|checkout|pay(?:ment)?|paiement|payer|purchase|buy|order|commander|upgrade|downgrade|reset|revoke|impersonate|invite|accept|confirm|verify|activate|deactivate|enable|disable|close-account|leave|connect|oauth2?|authorize|callback|install|uninstall|export|exporter|import|importer|download|telecharger|sync|approve|reject|refund|transfer|claim|redeem|join|switch|send|resend|envoyer|share|partager|publish|unpublish|publier|archive|unarchive|archiver|restore|duplicate|generate|regenerate|rotate|reveal|test|trigger|run|execute|start|stop|print|merge|refresh)(?:\/|$|[-_](?!(?:history|historique|list|logs?|results?|status|details?|preview|overview)(?:[\/_-]|$)))/i;
       var risky = uniq(byKind.route.concat(byKind.link, byKind.str).map(function (it) { return it.p; }).concat(guesses).filter(function (p) { return RISKY.test(p); }));
       if (st.refusesCors) warn.push(st.refusesCors + ' fichier(s) d\'une autre origine refuses (CORS) : ajouter rien de plus ; lire ces bundles via CDP si necessaire, ou se fier a la visite des ecrans.');
       if (st.htmlAuLieuDeJs) warn.push(st.htmlAuLieuDeJs + ' URL(s) de chunk ont renvoye une page HTML (repli de la SPA) : chunks devines inexistants, sans consequence.');
@@ -552,7 +567,7 @@
     var head = [D.title, h ? h.textContent : ''].join(' ');
     var NF = /\b404\b|not found|introuvable|non trouv|n['\u2019]existe pas|page not found|nicht gefunden|no encontrada|does not exist/i;
     var notFound = NF.test(head) || (body.length < 600 && NF.test(body));
-    var path = location.pathname + (/^#!?\//.test(location.hash) ? location.hash : '');
+    var path = location.pathname + hashRoute();
     /* ecran de connexion : un champ mot de passe VISIBLE et (URL d'authentification ou page sans navigation).
        Un formulaire de changement de mot de passe dans les parametres (barre laterale presente) n'en est pas un. */
     var pw = Array.prototype.filter.call(D.querySelectorAll('input[type=password]'), function (i) { return i.getClientRects().length > 0; }).length;
@@ -568,11 +583,12 @@
     };
     if (pw && !login) r.champsMotDePasse = pw + ' (formulaire dans la page, pas un ecran de connexion : ne rien saisir)';
     if (attendue) {
-      /* une URL complete est acceptee : seul son chemin (et son #/route) compte */
+      /* une URL complete est acceptee : seul son chemin (et son #/route) compte ; '#/x' seul = page courante + #/x.
+         Chemin ET route a hachage sont compares : '#/a' -> '#/b' est une redirection. */
       var att = String(attendue);
       try { if (/^[a-z][\w+.-]*:\/\//i.test(att)) { var au = new URL(att); att = au.pathname + (/^#!?\//.test(au.hash) ? au.hash : ''); } } catch (e) { }
       r.attendue = attendue;
-      r.redirection = normRoute(att) !== normRoute(path.split('#')[0]) && normRoute(att) !== normRoute(path);
+      r.redirection = normFull(att) !== normFull(path);
     }
     r.statut = notFound ? '404' : login ? 'connexion' : r.redirection ? 'redirection' : body.length < 40 ? 'chargement ? (rien d\'affiche : attendre puis relancer)' : 'ok';
     return r;
@@ -639,15 +655,20 @@
       try { twVar = getComputedStyle(D.body).getPropertyValue('--tw-ring-offset-width') || getComputedStyle(D.body).getPropertyValue('--tw-border-spacing-x'); } catch (e) { }
       var twv4 = false;
       try { twv4 = !!getComputedStyle(D.documentElement).getPropertyValue('--color-gray-500') || !!getComputedStyle(D.documentElement).getPropertyValue('--color-neutral-500'); } catch (e) { }
-      if (tw > 0.25 || twVar) F('css', 'Tailwind CSS ' + (twv4 ? 'v4' : twVar ? 'v3' : '?') + ' (' + Math.round(tw * 100) + ' % des classes' + (any(/\[[^\]]+\]$/) ? ', valeurs arbitraires' : '') + ')');
+      var bs = '';
+      try { bs = getComputedStyle(D.documentElement).getPropertyValue('--bs-body-bg') || getComputedStyle(D.documentElement).getPropertyValue('--bs-blue'); } catch (e) { }
+      var bsCls = !!(tok.btn && (tok.container || tok.row) && any(/^col-(?:sm|md|lg|xl)?-?\d+$/));
+      /* p-4, flex, text-center... existent aussi dans Bootstrap : Tailwind seulement avec un indice propre (variable
+         --tw-*, prefixe de variante md:/hover:..., valeur arbitraire [..]) ou un echantillon >= 200 classes sans Bootstrap */
+      var twArb = any(/\[[^\]]+\]$/), twVariant = any(/^(?:sm|md|lg|xl|2xl|hover|focus|focus-visible|active|disabled|dark|first|last|odd|even|placeholder|group-[\w-]+|peer-[\w-]+|aria-[\w-]+|data-\[[^\]]+\]):/);
+      if (twVar || (tw > 0.25 && (twArb || twVariant || (ntok >= 200 && !bs && !bsCls)))) F('css', 'Tailwind CSS ' + (twv4 ? 'v4' : twVar ? 'v3' : '?') + ' (' + Math.round(tw * 100) + ' % des classes' + (twArb ? ', valeurs arbitraires' : '') + ')');
+      else if (tw > 0.25 && !bs && !bsCls) F('css', 'classes utilitaires (' + Math.round(tw * 100) + ' % de ' + ntok + ' classes) : Tailwind ou Bootstrap ? a confirmer');
       if (/cdn\.tailwindcss\.com/.test(scripts)) F('css', 'Tailwind Play CDN');
       if (any(/^Mui[A-Z]/)) F('css', 'MUI (Material UI)');
       if (any(/^chakra-/)) F('css', 'Chakra UI');
       if (any(/^ant-/)) F('css', 'Ant Design');
       if (any(/^mantine-|^m_[0-9a-f]{8}$/)) F('css', 'Mantine');
-      var bs = '';
-      try { bs = getComputedStyle(D.documentElement).getPropertyValue('--bs-body-bg') || getComputedStyle(D.documentElement).getPropertyValue('--bs-blue'); } catch (e) { }
-      if (bs || (tok.btn && (tok.container || tok.row) && any(/^col-(?:sm|md|lg|xl)?-?\d+$/))) F('css', 'Bootstrap' + (bs ? ' 5' : ''));
+      if (bs || bsCls) F('css', 'Bootstrap' + (bs ? ' 5' : ''));
       if (tok.columns && tok.column && any(/^is-(?:primary|info|success)$/)) F('css', 'Bulma');
       if (any(/^v-(?:application|btn|card)\b/)) F('css', 'Vuetify');
       if (any(/^q-(?:btn|layout|page)/)) F('css', 'Quasar');
@@ -764,7 +785,7 @@
   W.__inventory = function (opts) {
     opts = opts || {};
     var lim = opts.max || 60;
-    var here = location.pathname;
+    var here = location.pathname + hashRoute();
     function visible(el) { return !!(el.getClientRects().length) && getComputedStyle(el).visibility !== 'hidden'; }
     function label(el) { return mask(el.getAttribute('aria-label') || el.innerText || el.getAttribute('title') || el.getAttribute('value') || ''); }
     function internal(a) {
@@ -787,7 +808,7 @@
         if (seenNav[k] || out.navigation.length >= lim * 2) return;
         seenNav[k] = 1;
         var ac = a.getAttribute('aria-current');
-        var act = (ac && ac !== 'false') || /(^|\s|-)(active|selected|current)(\s|$)/i.test(a.className && a.className.baseVal === undefined ? a.className : '') || normRoute(p) === normRoute(here);
+        var act = (ac && ac !== 'false') || /(^|\s|-)(active|selected|current)(\s|$)/i.test(a.className && a.className.baseVal === undefined ? a.className : '') || normFull(p) === normFull(here);
         out.navigation.push((act ? '* ' : '') + p + (t ? '  ' + t : '') + (visible(a) ? '' : '  (masque)'));
       } else {
         var pt = pattern(p);
@@ -823,13 +844,21 @@
     });
     out.onglets = cTabs.list(); out.menus = cMenus.list(); out.accordeons = cAcc.list();
     var CREATE = /^(?:\+\s*)?(nouve(?:au|l|lle)|ajouter|cr[\u00e9e]er|modifier|[\u00e9e]diter|importer|inviter|configurer|param[\u00e8e]tres|filtres?|trier|voir|afficher|d[\u00e9e]tails?|aper[\u00e7c]u|plus|new|add|create|edit|import|invite|settings|filters?|sort|view|show|details?|preview|more)\b/i;
-    var DANGER = /\b(supprimer|effacer|retirer|archiver|d[\u00e9e]sactiver|d[\u00e9e]connect|se d[\u00e9e]connecter|envoyer|publier|payer|acheter|commander|s'abonner|abonnement|upgrade|mettre [\u00e0a] niveau|enregistrer|sauvegarder|valider|confirmer|soumettre|inviter|importer|exporter|t[\u00e9e]l[\u00e9e]charger|connecter|synchroniser|r[\u00e9e]g[\u00e9e]n[\u00e9e]rer|r[\u00e9e]v[\u00e9e]ler|dupliquer|transf[\u00e9e]rer|delete|remove|archive|disable|deactivate|log ?out|sign ?out|send|publish|pay|buy|purchase|order|subscribe|save|submit|confirm|invite|import|export|download|connect|sync|regenerate|reveal|duplicate|transfer)\b/i;
+    /* verbes d'action (regles.md section 4), mot entier, accents compris ; "Annuler" / "Cancel" SEULS ferment une
+       boite de dialogue et restent permis, "Annuler le rendez-vous" est interdit */
+    var DANGER = /(?:^|[^\w\u00c0-\u024f])(supprimer|effacer|retirer|archiver|d[\u00e9e]sarchiver|d[\u00e9e]sactiver|activer|d[\u00e9e]connect(?:er)?|d[\u00e9e]connexion|se d[\u00e9e]connecter|connexion|reconnecter|envoyer|renvoyer|publier|d[\u00e9e]publier|partager|payer|acheter|commander|s['\u2019]abonner|se d[\u00e9e]sabonner|d[\u00e9e]sabonner|abonnement|s['\u2019]inscrire|se d[\u00e9e]sinscrire|r[\u00e9e]silier|fermer (?:le |mon |votre )?compte|upgrade|mettre [\u00e0a] niveau|mettre [\u00e0a] jour|enregistrer|sauvegarder|valider|confirmer|soumettre|appliquer|inviter|importer|exporter|t[\u00e9e]l[\u00e9e]charger|t[\u00e9e]l[\u00e9e]verser|connecter|synchroniser|r[\u00e9e]g[\u00e9e]n[\u00e9e]rer|g[\u00e9e]n[\u00e9e]rer|r[\u00e9e]v[\u00e9e]ler|dupliquer|copier|transf[\u00e9e]rer|r[\u00e9e]voquer|r[\u00e9e]initialiser|approuver|accepter|rejeter|refuser|installer|d[\u00e9e]sinstaller|imprimer|rembourser|restaurer|annuler(?=\s+\S)|quitter|rejoindre|renommer|d[\u00e9e]placer|fusionner|tester|ex[\u00e9e]cuter|lancer|d[\u00e9e]clencher|d[\u00e9e]marrer|red[\u00e9e]marrer|arr[\u00eae]ter|signer|marquer|[\u00e9e]pingler|d[\u00e9e]s[\u00e9e]pingler|bloquer|d[\u00e9e]bloquer|bannir|expulser|v[\u00e9e]rifier|r[\u00e9e]essayer|au panier|aux favoris|delete|remove|archive|unarchive|disable|deactivate|enable|activate|log ?out|log ?off|sign ?out|log ?in|sign ?in|sign ?up|sign|disconnect|reconnect|send|resend|publish|unpublish|share|pay|buy|purchase|order|checkout|subscribe|unsubscribe|close (?:my |your |the )?account|terminate|save|submit|confirm|apply|invite|import|export|download|upload|connect|sync|generate|regenerate|reveal|duplicate|copy|transfer|revoke|reset|approve|accept|reject|decline|install|uninstall|print|refund|restore|cancel(?=\s+\S)|leave|join|rename|move|merge|test|run|execute|trigger|start|stop|restart|update|mark|pin|unpin|block|unblock|ban|kick|verify|retry|to cart|to bag|to favou?rites|to wishlist)(?![\w\u00c0-\u024f])/i;
+    /* boutons qui VALIDENT un formulaire ou la boite deja ouverte ("Creer", "Ajouter", "OK" en bas d'une modale, tout
+       bouton submit d'un formulaire) : ils n'ouvrent rien, ils enregistrent -> nePasCliquer, marques "(validation)" */
+    var COMMIT = /^(?:\+\s*)?(nouve(?:au|l|lle)|ajouter|cr[\u00e9e]er|new|add|create|oui|yes|ok|d['\u2019]accord|continuer|continue|suivant|next|terminer|finish|done|go)(?![\w\u00c0-\u024f])/i;
+    function isSubmit(b) { return (b.tagName === 'BUTTON' || b.tagName === 'INPUT') && String(b.type).toLowerCase() === 'submit' && !!b.form; }
+    function inDialogOrForm(b) { try { return !!b.closest('[role=dialog], [role=alertdialog], [aria-modal=true], dialog, form'); } catch (e) { return false; } }
     Array.prototype.forEach.call(D.querySelectorAll('button, [role=button], a[href], input[type=submit], input[type=button]'), function (b) {
       if (!visible(b)) return;
       var t = label(b);
       if (!t) return;
-      if (DANGER.test(t)) { if (out.nePasCliquer.length < lim && out.nePasCliquer.indexOf(t) === -1) out.nePasCliquer.push(t); }
-      else if (b.tagName === 'A' && internal(b) && normRoute(internal(b)) !== normRoute(here)) { /* lien de navigation : une autre route, pas un etat */ }
+      var danger = DANGER.test(t), valide = !danger && (isSubmit(b) || (COMMIT.test(t) && inDialogOrForm(b)));
+      if (danger || valide) { var tv = valide ? t + '  (validation)' : t; if (out.nePasCliquer.length < lim && out.nePasCliquer.indexOf(tv) === -1) out.nePasCliquer.push(tv); }
+      else if (b.tagName === 'A' && internal(b) && normFull(internal(b)) !== normFull(here)) { /* lien de navigation : une autre route (#/route comprise), pas un etat */ }
       else if (CREATE.test(t) || b.getAttribute('data-bs-toggle') === 'modal' || b.getAttribute('data-toggle') === 'modal') { if (out.etatsCandidats.length < lim && out.etatsCandidats.indexOf(t) === -1) out.etatsCandidats.push(t); }
     });
     out.interrupteurs = D.querySelectorAll('[role=switch], input[type=checkbox], input[type=radio]').length;

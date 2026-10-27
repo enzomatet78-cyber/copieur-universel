@@ -9,9 +9,13 @@ d'état), les textes affichés, les positions au pixel près, les états (coché
 les raccourcis clavier. Ce qu'elle ne donne pas : couleurs, polices, marges internes, icônes. Ceux-là se
 mesurent sur les images de `window_shot.ps1`, qui partagent la même origine de coordonnées.
 
+Sections 1 à 8 : **Windows uniquement** (`uia_dump.ps1` et `window_shot.ps1` demandent PowerShell et UI
+Automation). Appli native **macOS** (AppKit, SwiftUI, Catalyst, Tauri/WKWebView, Qt, Java, Flutter) : §9, images
+seules.
+
 `OUTILS` = dossier des outils du plugin, `CAPTURE` = dossier de capture de l'unité (voir `SKILL.md`).
-Abréviations ci-dessous : `UIA` = `powershell -NoProfile -ExecutionPolicy Bypass -File "<OUTILS>\uia_dump.ps1"`,
-`SHOT` = `powershell -NoProfile -ExecutionPolicy Bypass -File "<OUTILS>\window_shot.ps1"`.
+Abréviations ci-dessous : `UIA` = `powershell -NoProfile -ExecutionPolicy Bypass -File "$OUTILS/uia_dump.ps1"`,
+`SHOT` = `powershell -NoProfile -ExecutionPolicy Bypass -File "$OUTILS/window_shot.ps1"`.
 
 ---
 
@@ -19,17 +23,17 @@ Abréviations ci-dessous : `UIA` = `powershell -NoProfile -ExecutionPolicy Bypas
 
 ```
 UIA -ProcessId <PID> -ListWindows                                       fenêtres visibles : handle, titre, classe, cadre, échelle
-UIA -ProcessId <PID> -Out "<CAPTURE>\principale\uia-initial.json"        arbre complet de la fenêtre principale
-SHOT -ProcessId <PID> -Out "<CAPTURE>\principale\01-fenetre.png"         image (PrintWindow, même en arrière-plan)
-UIA -ProcessId <PID> -Expand "Fichier" -Out "<CAPTURE>\principale\uia-menu-fichier.json"
-UIA -ProcessId <PID> -Expand "Fichier" -KeepOpen -Depth 0 -Out "<TRAVAIL>\tmp.json"
-SHOT -ProcessId <PID> -IncludePopups -Out "<CAPTURE>\principale\10-menu-fichier.png"
-UIA -ProcessId <PID> -CloseMenus -Depth 0 -Out "<TRAVAIL>\tmp.json"
-UIA -ProcessId <PID> -Expand "Fichier" -Invoke "Options…" -Out "<CAPTURE>\dialogue-options\uia-initial.json"
-SHOT -ProcessId <PID> -WindowTitle "Options" -Out "<CAPTURE>\dialogue-options\01-fenetre.png"
-UIA -ProcessId <PID> -WindowTitle "Options" -SelectTab "Affichage" -Out "<CAPTURE>\dialogue-options\uia-onglet-affichage.json"
-SHOT -ProcessId <PID> -WindowTitle "Options" -Out "<CAPTURE>\dialogue-options\30-onglet-affichage.png"
-UIA -ProcessId <PID> -CloseWindow "Options" -Depth 0 -Out "<TRAVAIL>\tmp.json"
+UIA -ProcessId <PID> -Out "$CAPTURE/principale/uia-initial.json"        arbre complet de la fenêtre principale
+SHOT -ProcessId <PID> -Out "$CAPTURE/principale/01-fenetre.png"         image (PrintWindow, même en arrière-plan)
+UIA -ProcessId <PID> -Expand "Fichier" -Out "$CAPTURE/principale/uia-menu-fichier.json"
+UIA -ProcessId <PID> -Expand "Fichier" -KeepOpen -Depth 0 -Out "$TRAVAIL/tmp.json"
+SHOT -ProcessId <PID> -IncludePopups -Out "$CAPTURE/principale/10-menu-fichier.png"
+UIA -ProcessId <PID> -CloseMenus -Depth 0 -Out "$TRAVAIL/tmp.json"
+UIA -ProcessId <PID> -Expand "Fichier" -Invoke "Options…" -Out "$CAPTURE/dialogue-options/uia-initial.json"
+SHOT -ProcessId <PID> -WindowTitle "Options" -Out "$CAPTURE/dialogue-options/01-fenetre.png"
+UIA -ProcessId <PID> -WindowTitle "Options" -SelectTab "Affichage" -Out "$CAPTURE/dialogue-options/uia-onglet-affichage.json"
+SHOT -ProcessId <PID> -WindowTitle "Options" -Out "$CAPTURE/dialogue-options/30-onglet-affichage.png"
+UIA -ProcessId <PID> -CloseWindow "Options" -Depth 0 -Out "$TRAVAIL/tmp.json"
 ```
 Répéter pour chaque menu de la barre de menus, chaque boîte de dialogue de la mission, chaque onglet. Le relevé
 d'un menu ouvert (`-Expand`) contient le menu dans `autresFenetres` (fenêtre surgissante `#32768` pour un menu
@@ -73,7 +77,7 @@ dialogue **non possédée** déjà ouverte (WPF sans `Owner`) se vise par son ti
     « Ln 1, Col 1 », « Zoom » s'affiche « 100% », « Titres » s'affiche « H1 ». Le texte affiché se lit sur
     l'image ; le `Name` devient l'`aria-label` du clone ;
   - le rectangle d'un `TextBlock` ne suit pas l'encre (« Ln 1, Col 1 » : UIA x = 21, encre x = 31) :
-    `py "<OUTILS>\png_diff.py" encre <png> --zone x,y,l,h` ;
+    `python3 "$OUTILS/png_diff.py" encre "<png>" --zone x,y,l,h` ;
   - un menu déroulant WinUI (`PopupWindowSiteBridge`) annonce 278 px de large pour des éléments qui en
     occupent 339 (colonne des raccourcis non comptée) : largeur des menus WinUI à mesurer sur l'image.
 - `Patterns` dit ce que le contrôle sait faire (Invoke = bouton, Toggle = case, ExpandCollapse = menu ou liste
@@ -154,8 +158,10 @@ dialogue **non possédée** déjà ouverte (WPF sans `Owner`) se vise par son ti
 | Fenêtre minimisée | refus explicite | `-Restore` (restaure sans activer) |
 | `-NoCrop` | garde les bordures invisibles (rarement utile) | — |
 
-Chaque réponse est une ligne JSON (`methode`, `largeur`, `hauteur`, `cadreEcran`, `echelle`, `composition`,
-`decalage`, `origine`) : la recopier dans `notes.md`. Puis **regarder l'image** (Read sur le PNG).
+Chaque réponse est une ligne `OK window_shot : {…}` : le JSON suit le préfixe (`methode`, `largeur`, `hauteur`,
+`cadreEcran`, `echelle`, `composition`, `decalage`, `origine`) ; les avertissements (`attention : …`) et les
+erreurs (`erreur : …`) partent sur la sortie d'erreur. Recopier le JSON dans `notes.md`, lire les
+avertissements, puis **regarder l'image** (Read sur le PNG).
 
 `-Activate` change brièvement la fenêtre au premier plan de l'utilisateur : l'utiliser avec parcimonie, une
 fois par état, et jamais pendant qu'il tape (prévenir si la session est partagée).
@@ -171,6 +177,8 @@ survol (infobulles, états « hover »), raccourcis clavier d'affichage, défile
 - ses captures montrent **tout l'écran** (autres fenêtres de l'utilisateur comprises) : s'en servir pour voir et
   piloter, mais verser au dossier les images de `window_shot.ps1` (cadrées sur la fenêtre) ;
 - s'il n'est pas disponible (agent de Workflow, session sans bureau), décrire ces états dans `notes.md`.
+
+Sous macOS, computer-use est le principal moyen d'observer une appli native : §9.
 
 ---
 
@@ -234,9 +242,10 @@ l'agrandissement Windows ; boîte modale ouverte par « Options... » (`Modal: t
 
 ## 8. Rendre la reconstruction fidèle
 
-- **Fenêtre** : le clone s'ouvre via `lancer-app.cmd` (skill `reconstruire-appli`). `CU_LARGEUR`/`CU_HAUTEUR`
-  fixent la taille **extérieure** de la fenêtre Edge : pour une zone de contenu égale à `cadreEcran ÷ echelle`,
-  ajouter les bordures et la barre de titre d'Edge (mesuré à 125 % : +14 px CSS en largeur, +37 en hauteur) et
+- **Fenêtre** : le clone s'ouvre via `lancer-app.cmd` (skill `reconstruire-appli` ; macOS : §9).
+  `CU_LARGEUR`/`CU_HAUTEUR` fixent la taille **extérieure** de la fenêtre Edge : pour une zone de contenu égale à
+  `cadreEcran ÷ echelle`, ajouter les bordures et la barre de titre d'Edge (mesuré à 125 % : +14 px CSS en
+  largeur, +37 en hauteur) et
   vérifier `innerWidth`/`innerHeight` (`fidelite.md` §11). La barre de titre native n'est pas reproductible dans
   une fenêtre Edge `--app` (Edge dessine la sienne, colorée par `<meta name="theme-color">`) : les onglets que
   l'original place dans sa barre de titre se reproduisent juste en dessous, sans redessiner
@@ -244,11 +253,94 @@ l'agrandissement Windows ; boîte modale ouverte par « Options... » (`Modal: t
 - **Polices** : Microsoft Sans Serif 8,25 pt (≈ 11 px) en WinForms .NET Framework (menus et barre de titre :
   Segoe UI 9 pt), Segoe UI 9 pt (12 px) en Win32 récent et WinForms .NET 6+, 12 px en WPF, Segoe UI Variable
   14 px en WinUI 3 ; vérifier sur l'image (hauteur des capitales, graisse).
-- **Couleurs** : pipette sur l'image (`py "<OUTILS>\png_diff.py" couleur <png> x,y`) ; thème Windows clair ou
+- **Couleurs** : pipette sur l'image (`python3 "$OUTILS/png_diff.py" couleur "<png>" x,y`) ; thème Windows clair ou
   sombre noté — ne jamais changer le thème de Windows pour capturer l'autre (réglage système).
 - **Windows 11** : coins arrondis 8 px, matériau Mica (approximer par une couleur unie : `#f3f3f3` clair,
   `#202020` sombre, ou la couleur mesurée), couleur d'accent de l'utilisateur (la noter, la rendre configurable).
 - **Icônes** : Fluent UI System Icons (libre) ou la police Segoe Fluent Icons installée avec Windows, glyphe
-  identifié par `OUTILS\glyphes.html` (mode d'emploi en tête du fichier) ; ne pas extraire les icônes de l'exe.
+  identifié par `"$OUTILS/glyphes.html"` (Windows uniquement ; mode d'emploi en tête du fichier) ; ne pas
+  extraire les icônes de l'exe.
 - **États** : chaque `States` relevé (coché, déplié, sélectionné, désactivé) doit exister dans le clone ; chaque
   `AcceleratorKey` aussi, au moins affiché dans les menus.
+
+---
+
+## 9. macOS : appli native, images seules (fidélité réduite)
+
+Pour une appli native macOS — AppKit, SwiftUI, Catalyst, Tauri (WKWebView, sans port de débogage), Qt, Java,
+Flutter ; `detect_app_mac.py` répond `cdp: false` — aucun outil du plugin ne lit l'arbre natif. On capture des
+**images**, on lit textes, couleurs et positions dessus, et on décrit le reste. Annoncer à l'utilisateur, avant
+de commencer, une **fidélité réduite** : aucune mesure garantie, textes relus sur les images.
+
+**Autorisations** : l'image d'une fenêtre par `screencapture` demande l'autorisation « Enregistrement de
+l'écran », computer-use les siennes ; c'est l'utilisateur qui les accorde (Réglages Système > Confidentialité et
+sécurité), jamais l'agent. Sans elles : images computer-use si elles sont disponibles, sinon description.
+
+**Lancer** : l'agent lance lui-même l'appli et note son PID — binaire du paquet, en arrière-plan, jamais
+`open -a` :
+```bash
+ps -axo pid,comm | grep -F "/<Appli>.app/Contents/MacOS/"    # état initial : une instance de l'utilisateur ? ne rien toucher, lui demander
+"/Applications/<Appli>.app/Contents/MacOS/<exe>" >/dev/null 2>&1 & echo $!
+```
+Une appli native n'a pas de profil temporaire : elle ouvre les données de l'utilisateur (`donnees` de
+`detect_app_mac.py`) et peut rouvrir les fenêtres de sa session précédente (documents, titres). Mêmes règles que
+pour le Bloc-notes de Windows 11 (§6) : n'ouvrir aucun fichier (pas même un document de test, qui entrerait dans
+ses documents récents) ; une donnée de l'utilisateur visible → ne pas verser l'image, décrire l'écran, ou lui
+demander de fermer ce document lui-même. L'argument `-ApplePersistenceIgnoreState YES` évite en principe la
+réouverture des fenêtres pour ce seul lancement (aucun réglage modifié ; non vérifié ici : regarder l'image).
+
+**Fenêtres et images** :
+- computer-use (charger d'abord le skill `computer-use`, demander l'accès à cette appli) : `app_list_windows`
+  (id, titre, cadre de chaque fenêtre), `app_screenshot` (image d'une fenêtre, même en arrière-plan, avec la
+  liste de ses éléments accessibles : rôle, titre, position), `app_menu` en mode **liste** (titres des menus de
+  la barre de menus globale, sans rien activer). Ses images restent dans la conversation : pour le dossier de
+  capture, `screencapture`.
+- `screencapture -x -o -l <id> "$CAPTURE/<ecran>/01-fenetre.png"` : image de **cette** fenêtre seulement (`-x`
+  sans son, `-o` sans ombre), barre de titre et feux tricolores compris, deux fois plus grande que les points sur
+  un écran Retina. Regarder chaque image (Read) : une image vide ou le fond d'écran seul = autorisation
+  manquante.
+- Menus déroulants, survols, menus contextuels : computer-use, ou description dans `notes.md`.
+
+L'id de fenêtre (CGWindowID) vient de `app_list_windows` ou, sans computer-use, de cette commande (Python
+standard, lecture seule, ni titre ni contenu des fenêtres ; testée), avec le PID noté — la recopier telle
+quelle, sans indentation :
+```bash
+python3 -c "
+import ctypes as c,ctypes.util as u,sys
+cg=c.CDLL(u.find_library('CoreGraphics'));cf=c.CDLL(u.find_library('CoreFoundation'));V=c.c_void_p
+class R(c.Structure):_fields_=[(k,c.c_double) for k in 'xywh']
+cg.CGWindowListCopyWindowInfo.restype=V;cg.CGRectMakeWithDictionaryRepresentation.argtypes=[V,c.POINTER(R)]
+cf.CFArrayGetValueAtIndex.restype=V;cf.CFArrayGetValueAtIndex.argtypes=[V,c.c_long];cf.CFArrayGetCount.argtypes=[V]
+cf.CFDictionaryGetValue.restype=V;cf.CFDictionaryGetValue.argtypes=[V,V];cf.CFNumberGetValue.argtypes=[V,c.c_int,V]
+def g(d,k):return cf.CFDictionaryGetValue(d,V.in_dll(cg,k))
+def n(d,k):x=c.c_double();cf.CFNumberGetValue(g(d,k),13,c.byref(x));return int(x.value)
+a=cg.CGWindowListCopyWindowInfo(17,0)
+for i in range(cf.CFArrayGetCount(a)):
+ d=cf.CFArrayGetValueAtIndex(a,i);r=R()
+ if n(d,'kCGWindowOwnerPID')==int(sys.argv[1]):cg.CGRectMakeWithDictionaryRepresentation(g(d,'kCGWindowBounds'),c.byref(r));print('id=%d couche=%d cadre=%dx%d+%d+%d'%(n(d,'kCGWindowNumber'),n(d,'kCGWindowLayer'),r.w,r.h,r.x,r.y))
+" <PID>
+```
+→ une ligne par fenêtre visible du PID, par exemple `id=4242 couche=0 cadre=1200x800+100+60` (points ; couche 0 =
+fenêtre normale, au-dessus : menus et fenêtres surgissantes). Une fenêtre absente de la liste est minimisée,
+cachée ou sur un autre bureau.
+
+**Lecture seule** : mêmes interdits qu'en §3 (ni saisie, ni validation, ni réglage ; Échap pour refermer).
+`app_menu` en mode `path` **active** l'élément : seulement pour ouvrir une fenêtre d'information ou de réglages
+(« Réglages… », « À propos de … »), jamais Enregistrer, Ouvrir, Exporter, Imprimer, Partager, Quitter, Se
+déconnecter, « Rechercher les mises à jour… ». Ne jamais lister « Ouvrir récent », « Historique » ni « Fenêtre »
+(fichiers et fenêtres de l'utilisateur).
+
+**Mesures** : px CSS = px de l'image ÷ 2 sur Retina (÷ 1 sinon) ; couleurs et boîtes d'encre :
+`python3 "$OUTILS/png_diff.py" couleur "<png>" x,y` et `encre "<png>" --zone x,y,l,h` ; positions des éléments :
+résumé de `app_screenshot`. Police système San Francisco (`-apple-system, BlinkMacSystemFont, system-ui` dans le
+clone ; contrôles AppKit standard en 13 px, à confirmer sur l'image) ; icônes **SF Symbols** (licence réservée aux
+plateformes Apple) : recadrées dans la capture (usage personnel) ou remplacées par un équivalent libre (Lucide,
+Tabler), jamais extraites du système ; matériaux translucides approximés par la couleur mesurée.
+
+**Fermer** : `kill <PID>` (SIGTERM : l'appli quitte, en général sans boîte « Enregistrer ? », rien n'est
+enregistré), puis `ps -p <PID>` (plus de ligne sous l'en-tête = arrêtée) ; jamais `killall` ni `pkill` par nom,
+qui fermeraient aussi l'instance de l'utilisateur. Pas de profil à supprimer.
+
+**Clone** : fenêtre Chrome `--app` ouverte par `lancer-app.command` (skill `reconstruire-appli`) ; macOS y dessine
+sa propre barre de titre et ses feux tricolores : ne pas les redessiner dans la page, ni la barre de menus du
+système.

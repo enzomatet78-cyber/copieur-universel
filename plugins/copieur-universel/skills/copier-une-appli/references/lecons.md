@@ -50,8 +50,12 @@ headless)
   cookies, des chaînes de requête ou du base64 (caractères `;`, `&`, `?`, longues suites alphanumériques).
 - **Solution** : échapper avant de renvoyer — `;`→`§`, `&`→`(AMP)`, `?`→`(Q)` (le kit généralisé échappe
   d'abord les `§` d'origine en `(SECT)`) — et découper en morceaux **≤ 900 caractères** (le kit le fait :
-  `__dump()` remplit `window.__D`) ; récupérer par paquets (`window.__D.slice(0,20)`, puis `(20,40)`…) ;
-  redemander un morceau bloqué en plus petit (`window.__D[i].slice(0,300)`…). **Inverser les échappements** en
+  `__dump()` remplit `window.__D`) ; récupérer par paquets (`window.__D.slice(0,20)`, puis `(20,40)`…). Un
+  morceau « [BLOCKED…] » ne se redécoupe **pas** aussitôt : le relire masqué (cookie, session, jeton, « = »,
+  base64), masquer la donnée (`__mask` ou `__addMap`) et refaire `__dump` ; le redécoupage en plus petit
+  (`window.__D[i].slice(0,300)`…) est réservé aux faux positifs (`capture-web/references/chrome-connecte.md` §7).
+  Une valeur de session ou un secret n'est jamais capturé (le noter dans `notes.md`, sans la valeur).
+  **Inverser les échappements** en
   écrivant les fichiers, dans le bon ordre (`§`→`;` avant `(SECT)`→`§`) : la commande de décodage testée est
   dans `capture-web/references/chrome-connecte.md` §7.
 
@@ -214,8 +218,10 @@ headless)
   celle lancée pour la capture.
 - **Cause** : `-ProcessName` choisit parmi toutes les instances, y compris celle que l'utilisateur avait déjà
   ouverte.
-- **Solution** : noter le PID (et le handle) de l'instance lancée sur profil temporaire, et viser
-  `-ProcessId <PID>` ; ne fermer que ce PID à la fin.
+- **Solution** : noter le PID (et, sous Windows, le handle) de l'instance lancée sur profil temporaire, et
+  viser `-ProcessId <PID>` (sous macOS : `ps -p <PID>` et les fenêtres de ce PID) ; ne fermer que ce PID à la
+  fin. Sous macOS, `open -a <App>` provoque le même piège (il confie la demande à l'instance déjà ouverte, sans
+  donner de PID) : lancer le binaire `<App>.app/Contents/MacOS/<exe>` et noter `$!`.
 
 ### I3. Une passe de vérification « sans écart » alors que personne n'a vérifié
 - **Symptôme** : le résultat d'une passe ne signale rien, mais un relecteur ou un vérificateur adverse a été
@@ -233,7 +239,8 @@ headless)
   modifie l'installation, que le profil ne protège pas.
 - **Solution** : bloquer les mises à jour dans le profil **avant** le lancement (VS Code : `settings.json` avec
   `"update.mode": "none"`, `capture-bureau/references/electron.md` §1) ; ne jamais arrêter un installeur en
-  cours (pas de `taskkill /T` à l'aveugle) ; prévenir l'utilisateur si c'est arrivé.
+  cours (pas de `taskkill /T` à l'aveugle ; sous macOS, le processus `ShipIt` de Squirrel.Mac est laissé
+  tranquille, jamais de `kill -9`) ; prévenir l'utilisateur si c'est arrivé.
 
 ### J2. Les états de la coque se jouent ailleurs que sur l'élément cliqué
 - **Symptôme** : à 375 px, le clone diffère de l'original de 52 px alors que le dump de la barre repliée était
@@ -258,24 +265,25 @@ headless)
 ### J5. La fenêtre du clone est trop petite
 - **Symptôme** : `CU_LARGEUR=1141`, `CU_HAUTEUR=658` donnent une zone de contenu de 1128×622.
 - **Cause** : `--window-size` fixe la taille extérieure (bordures et barre de titre d'Edge comprises).
-- **Solution** : ajouter ~14 px en largeur et ~37 en hauteur (à 125 %), puis vérifier `innerWidth`/
-  `innerHeight` (`reconstruire-appli/references/fidelite.md` §11).
+- **Solution** : ajouter ~14 px en largeur et ~37 en hauteur (Edge sous Windows, à 125 %), puis vérifier
+  `innerWidth`/`innerHeight` (`reconstruire-appli/references/fidelite.md` §11) ; sous macOS, la barre de titre
+  de Chrome change aussi l'écart : le mesurer de la même façon.
 
-### J6. Un `.cmd` modifié sous Git Bash lance n'importe quoi
+### J6. Un `.cmd` modifié sous Git Bash lance n'importe quoi (Windows uniquement)
 - **Symptôme** : après `sed -i` sur `lancer-app.cmd`, `--verifier` reste bloqué ; un `py` sans argument attend
   sur l'entrée standard.
 - **Cause** : `sed -i` a remplacé les fins de ligne CRLF par LF ; cmd lit alors mal ses étiquettes.
 - **Solution** : modifier les `.cmd` avec un outil qui garde les CRLF (outil Edit, PowerShell) ; le lanceur
   vérifie désormais ses fins de ligne au démarrage et s'arrête.
 
-### J7. L'outil PowerShell de Claude Code bloque une commande de nettoyage
+### J7. L'outil PowerShell de Claude Code bloque une commande de nettoyage (Windows uniquement)
 - **Symptôme** : « Remove-Item on system path … is blocked » sur un script recopié, parfois même à cause d'un
   chemin cité dans un message d'erreur.
 - **Cause** : garde-fou de Claude Code sur `Remove-Item` quand le chemin est dans une variable.
-- **Solution** : passer par un script lancé avec `-File` (`headless.ps1 -Action fermer`), ou écrire le chemin en
-  entier (`rm -rf "C:/…/cu-…"` sous Git Bash).
+- **Solution** : passer par un script (`headless.py fermer`, ou `headless.ps1 -Action fermer` lancé avec
+  `-File`), ou écrire le chemin en entier (`rm -rf "C:/…/cu-…"` sous Git Bash).
 
-### J8. Git Bash transforme les routes en chemins Windows
+### J8. Git Bash transforme les routes en chemins Windows (Windows uniquement)
 - **Symptôme** : `check_links.py --hors-perimetre /app/settings` ou `cdp_eval.py eval --target "/app/demo"`
   reçoivent `C:/Program Files/Git/app/…`.
 - **Cause** : la conversion automatique des chemins de MSYS pour les programmes Windows.
@@ -302,8 +310,9 @@ headless)
 ## K. Leçons de la fin du chantier iClosed (reprises, budget)
 
 **K1. Aucune capture d'écran possible (« Page.captureScreenshot timed out »).** Cause : la fenêtre Chrome de l'utilisateur
-est **réduite** dans la barre des tâches. Solution : lui demander de la garder ouverte (elle peut rester derrière d'autres
-fenêtres) avant de lancer les captures ; sinon la vérification se fait seulement sur le DOM, sans référence en pixels.
+est **réduite** dans la barre des tâches (le Dock sous macOS). Solution : lui demander de la garder ouverte (elle peut
+rester derrière d'autres fenêtres) avant de lancer les captures ; sinon la vérification se fait seulement sur le DOM,
+sans référence en pixels.
 
 **K2. Agents en échec (coupure réseau « ENOTFOUND », limite d'usage atteinte).** Les agents réussis sont conservés :
 relancer avec `Workflow({ scriptPath, resumeFromRunId })`. Ne modifier que des textes PROPRES aux unités en échec

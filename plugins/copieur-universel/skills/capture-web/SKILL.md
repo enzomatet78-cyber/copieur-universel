@@ -15,11 +15,14 @@ C'est la méthode qui a permis de recréer entièrement l'appli iClosed (SaaS Re
 page, état par état, avec un kit JavaScript injecté dans l'onglet ; elle est ici généralisée à n'importe quelle
 appli web et aux sites publics.
 
-**Outils** : dossier `outils/` du plugin = `${CLAUDE_PLUGIN_ROOT}/outils/` ; si cette variable n'est pas
-remplacée, utiliser `<Base directory de ce skill>\..\..\outils\` (résoudre en chemin absolu avant de lancer une
-commande). Dans la suite, `OUTILS` désigne ce chemin absolu (cmd : `%OUTILS%`, bash : `$OUTILS`). Le kit est
-`OUTILS\capture-kit.js` ; le client CDP est `OUTILS\cdp_eval.py` (`nav`, `eval`, `shot`, `hover`, `console`,
-`size`, `close`) ; `OUTILS\headless.ps1` lance et ferme un Chrome/Edge headless sur profil temporaire.
+**Outils** : dossier `outils/` du plugin = `OUTILS="${CLAUDE_PLUGIN_ROOT}/outils"` ; si cette variable n'est
+pas remplacée, utiliser `<Base directory de ce skill>/../../outils` (résoudre en chemin absolu avant de lancer une
+commande). Les commandes sont écrites pour l'outil Bash (bash ou zsh sous macOS, Git Bash sous Windows), chemins
+entre guillemets (`"$OUTILS"`, `"$CAP"`) ; chaque appel Bash est un nouveau shell : y redéfinir les variables, ou
+écrire en entier les valeurs notées (port, profil). Sous Windows, `py` remplace `python3` (lanceur Python de
+Windows). Le kit est `"$OUTILS/capture-kit.js"` ; le client CDP est `"$OUTILS/cdp_eval.py"` (`nav`, `eval`,
+`shot`, `hover`, `console`, `size`, `close`) ; `"$OUTILS/headless.py"` lance et ferme un Chrome/Edge headless sur
+profil temporaire (Windows : `headless.ps1` reste disponible, mêmes actions).
 
 Fichiers de ce skill (relatifs à son Base directory) :
 - `references/chrome-connecte.md` — appli **connectée** via Claude in Chrome : choix du navigateur, onglet
@@ -57,8 +60,8 @@ alors que la construction est parallèle (voir `copier-une-appli`).
 ## 2. Avant la première page
 
 - **Liste des pages et des états** : issue de `reconnaissance-appli` (inventaire, unités) ou fournie par l'agent
-  principal. Pour une SPA, les routes viennent du bundle (`OUTILS\routes-from-bundle.js`) puis d'une visite.
-- **Dossier de travail** hors du clone (ex. scratchpad) : `<TRAVAIL>\capture\<unité>\<page>\` (section 6). Les
+  principal. Pour une SPA, les routes viennent du bundle (`"$OUTILS/routes-from-bundle.js"`) puis d'une visite.
+- **Dossier de travail** hors du clone (ex. scratchpad) : `<TRAVAIL>/capture/<unité>/<page>/` (section 6). Les
   captures ne doivent jamais être servies ni livrées avec le clone.
 - **Ce qu'on garde tel quel** (demandé au cadrage) : en général le nom du titulaire du compte, son email, son
   organisation. Tout le reste de ce qui touche des personnes devient fictif.
@@ -75,22 +78,30 @@ Un fichier JavaScript injecté **tel quel** dans la page ; il renvoie `kit ok`. 
 trois fonctions modifient l'**affichage local** pour les images (`__anonLive`, `__mask`, `__cover`), jamais le
 serveur — on recharge la page ensuite. Il garde sa configuration, son dictionnaire d'anonymisation et sa propre
 source dans le `sessionStorage` de l'onglet (clés `copieur-*`), ce qui permet : des faux noms **identiques d'une
-page à l'autre**, et une **réinjection courte** après chaque navigation.
+page à l'autre**, et une **réinjection courte** après chaque navigation. Ce `sessionStorage` est propre à
+l'**origine** (protocole + hôte + port), pas seulement à l'onglet : après une redirection ou une navigation vers
+un autre hôte (`www.` → domaine nu, sous-domaine `docs.`), config et dictionnaire sont vides (`raw` repasse à
+`false`) — refaire `__config(...)` et `__addNames(...)`, et vérifier `__info().raw` et `__info().noms`.
 
 ### Injecter
-- **Claude in Chrome, navigateur intégré** : lire le fichier (Read) et passer tout son contenu comme `text` de
-  `javascript_tool`. Le fichier pèse environ 85 Ko (près de 25 000 jetons) : on ne l'envoie qu'**une fois par
-  onglet**. Après chaque navigation ou rechargement, la réinjection courte suffit :
+- **Claude in Chrome, navigateur intégré** : passer le fichier **entier** comme `text` de `javascript_tool`. Il
+  pèse environ 85 Ko (plus de 25 000 jetons), au-delà de ce qu'un Read rend par défaut : un kit tronqué donne une
+  erreur de syntaxe ou rien. Read du chemin absolu `$OUTILS/capture-kit.js` avec `allow_large: true` ; à défaut,
+  par tranches de 400 lignes (`offset` 1, 401, 801…, `limit` 400) jusqu'à la dernière ligne, `})();`. Envoyer le
+  texte **sans** les numéros de ligne ajoutés par Read, toutes les lignes dans l'ordre ; la réponse doit être
+  exactement `kit ok`, sinon relire et renvoyer. On ne l'envoie qu'**une fois par onglet**. Après chaque
+  navigation ou rechargement, la réinjection courte suffit :
   ```js
   window.__dump ? 'kit ok' : (0, eval)(sessionStorage.getItem('copieur-kit') || "'kit absent'")
   ```
   Réponse `kit absent` ou erreur → renvoyer le fichier complet. (Testé par le protocole DevTools, sur lequel
   repose aussi l'évaluation « REPL » de `javascript_tool` : sous une CSP stricte, cet `eval` passe. Si
   l'extension répond « EvalError », renvoyer le fichier complet après chaque navigation.)
-- **`cdp_eval.py`** : `--file "%OUTILS%\capture-kit.js" --expr "…"` à chaque appel (gratuit, rien ne transite par
-  la conversation).
+- **`cdp_eval.py`** : `--file "$OUTILS/capture-kit.js" --expr "(__config({raw:true}), …)"` à chaque appel
+  (gratuit, rien ne transite par la conversation ; répéter `__config({raw:true})` en tête ne coûte rien et
+  protège d'un changement d'origine).
 
-### Configurer (une fois par onglet ; conservé de page en page)
+### Configurer (une fois par onglet et par origine ; conservé de page en page sur le même hôte)
 ```js
 __config({ keep: ['Prénom Nom', 'Organisation'], owner: 'titulaire@domaine.fr' })
 ```
@@ -139,7 +150,9 @@ __config({ keep: ['Prénom Nom', 'Organisation'], owner: 'titulaire@domaine.fr' 
 - **Par défaut (Claude in Chrome, navigateur intégré)** : `__dump`, `__styles`, `__icons`, `__chart(i)` rangent
   le texte dans `window.__D`, **échappé** et découpé en morceaux de ≤ 900 caractères, et renvoient le nombre de
   morceaux. Raison : le filtre de sortie de l'extension tronque vers 1000 caractères et bloque ce qui ressemble à
-  des cookies ou des chaînes de requête. Échappements : `§`→`(SECT)`, puis `;`→`§`, `&`→`(AMP)`, `?`→`(Q)`.
+  des cookies ou des chaînes de requête ; du HTML ordinaire (styles en ligne, liens déjà nettoyés) le
+  déclencherait à tort. Échappements : `§`→`(SECT)`, puis `;`→`§`, `&`→`(AMP)`, `?`→`(Q)`. Ce n'est pas un
+  passe-droit : un morceau qui revient « [BLOCKED…] » est d'abord examiné (`references/chrome-connecte.md` §7).
   On récupère `window.__D.slice(0, 20)`, `(20, 40)`… puis on **inverse** en écrivant le fichier (procédure
   exacte : `references/chrome-connecte.md` §7). Les textes courts de `__info()` et `__overlays()` sont échappés
   de la même façon.
@@ -251,19 +264,19 @@ notes). En revanche, ne pas sortir de l'unité : la capture séquentielle attend
 ## 6. Dossier de capture
 
 ```
-<TRAVAIL>\capture\<unité>\
+<TRAVAIL>/capture/<unité>/
   notes.md                  synthèse de l'unité : pages, statuts, routes découvertes, problèmes
   styles.css                __styles('body')            (une fois ; refaire si une page a ses propres styles)
   icones.txt                __icons('body')
-  <slug>\                   slug = route sans « / » initial, « / » → « - » : /app/settings/billing → app-settings-billing
+  <slug>/                   slug = route sans « / » initial, « / » → « - » : /app/settings/billing → app-settings-billing
     notes.md                                             (« / » seul → accueil ; ?tab=x → -tab-x)
     01-haut.png  02-milieu.png  03-bas.png               vue initiale puis défilement
     10-onglet-<nom>.png  20-modale-<nom>.png  30-menu-<nom>.png  40-infobulle-<nom>.png  50-vide.png
     dom-initial.html  dom-onglet-<nom>.html  dom-modale-<nom>.html  dom-menu-<nom>.html
     graphique-<nom>.txt
 ```
-Garder l'extension d'origine des images (`.png` ou `.jpg`). Créer les dossiers avec `mkdir -p "…"` (Git Bash) ou
-`New-Item -ItemType Directory -Force "…"` (PowerShell).
+Garder l'extension d'origine des images (`.png` ou `.jpg`). Créer les dossiers avec `mkdir -p "…"` (outil Bash,
+macOS et Git Bash) ou `New-Item -ItemType Directory -Force "…"` (PowerShell, Windows).
 
 Modèle de `notes.md` d'une page :
 ```markdown
@@ -301,7 +314,8 @@ Modèle de `notes.md` d'une page :
 - `styles.css` et `icones.txt` existent pour l'unité ; graphiques détaillés s'il y en a.
 - Aucune image, aucun dump, aucune note ne contient de donnée réelle hors liste « à garder », ni de secret.
 - Mode connecté : aucune action interdite effectuée ; l'onglet est laissé sur une page neutre rechargée,
-  `__forget()` appelé en fin de capture complète. Mode public : navigateur headless fermé par celui qui l'a lancé.
+  `__forget()` appelé en fin de capture complète. Mode public : navigateur headless fermé par celui qui l'a lancé
+  (`headless.py fermer`, profil supprimé).
 - Le compte rendu renvoyé liste les pages (route, statut, dossier, fichiers, résumé), le viewport et les problèmes.
 
 ---
@@ -310,16 +324,21 @@ Modèle de `notes.md` d'une page :
 
 - **Écran de chargement infini** (Chrome masqué ou onglet en arrière-plan) → rituel de rendu : image à l'échelle
   0.1, attente 3–4 s, nouvelle image, puis seulement le DOM ; un seul onglet au premier plan.
-- **Réponse tronquée ou « [BLOCKED…] »** → mode par défaut du kit, morceaux par paquets de 20, morceau bloqué
-  redemandé en plus petit (`window.__D[i].slice(0, 300)`…).
+- **Réponse tronquée** → mode par défaut du kit, morceaux par paquets de 20. **« [BLOCKED…] »** → ne pas
+  redécouper aussitôt : relire ce morceau **masqué** (cookie, session, jeton, `=`, base64), masquer la donnée
+  (`__mask`, `__addMap`), et seulement ensuite le redemander (`references/chrome-connecte.md` §7). Une valeur de
+  session ou un secret n'est jamais capturé ; le noter dans `notes.md` (sans la valeur).
 - **Navigation par `history.pushState`** qui recharge la page → toujours naviguer avec l'outil de navigation,
   réinjecter le kit ensuite.
 - **Faux noms différents d'une page à l'autre** → toujours le même onglet (le dictionnaire vit dans son
   `sessionStorage`) ; ne pas appeler `__forget()` avant la fin.
+- **Dump qui ne contient que « 1 », ou vrai nom revenu, après une redirection vers un autre hôte** → le
+  `sessionStorage` est propre à l'origine : `__config({raw:true})` en tête de chaque expression, `__addNames`
+  à refaire sur le nouvel hôte (`__info().noms` à 0 = dictionnaire vide).
 - **Images trompeuses après un re-rendu** (l'appli remet un vrai nom) → la surveillance le corrige ; refaire
   `__anonLive()` après toute action qui recharge une zone, et regarder l'image.
 - **Viewport headless plus petit que `--window-size`** → `cdp_eval.py size --viewport 1536x791` règle la
-  fenêtre d'après le viewport mesuré (fait par `headless.ps1`) ; vérifier `__info().vw/vh`. Une fenêtre
+  fenêtre d'après le viewport mesuré (fait par `headless.py lancer`) ; vérifier `__info().vw/vh`. Une fenêtre
   headless ne descend pas sous ~500 px de large : pour 375 px, `nav --viewport 375x812` puis
   `shot`/`eval --viewport 375x812` (`references/sites-publics.md` §2.1).
 - **Images d'un autre domaine absentes en headless** (`naturalWidth` 0) alors qu'elles s'affichent dans un

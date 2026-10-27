@@ -30,12 +30,13 @@ Les fichiers bruts restent à côté : `reconnaissance/stack.json`, `routes.json
 ## 2. Modèle d'`inventaire.md`
 ```markdown
 # Inventaire — <Nom de l'appli>
-- Original : <URL de base> | <chemin de l'exe / nom du processus>     Mode : web-connecte | web-public | electron | natif
-- Date : <AAAA-MM-JJ>   Viewport / fenêtre de référence : 1536×791 (DPR 1)   Langue de l'interface : fr
+- Original : <URL de base> | <chemin de l'exe ou du .app / nom du processus>     Mode : web-connecte | web-public | electron | natif
+- Date : <AAAA-MM-JJ>   Viewport / fenêtre de référence : 1536×791 (DPR 1 ; 2 sur un écran Retina)   Langue de l'interface : fr
 - Périmètre demandé : <appli entière | section X | écran Y>   Données : fictives sauf <titulaire, organisation…>
 
 ## 1. Technologie (sources : stack.json, routes.json, detect.json)
-- Type : SPA React 18 + React Router (routeur history) | Electron 43 (Chromium 150) avec React | WinUI 3 (MSIX)…
+- Type : SPA React 18 + React Router (routeur history) | Electron 43 (Chromium 150) avec React | WinUI 3 (MSIX) |
+  SwiftUI/AppKit sous macOS (d'après images : fidélité réduite)…
 - Styles : Tailwind CSS v3 (≈ 80 % des classes, valeurs arbitraires) → recopier les classes + CDN Tailwind
 - Composants : Headless UI (menus, modales) ; icônes : Tabler (stroke 2) ; graphiques : Recharts (SVG)
 - Polices : Inter 400/500/600/700 (Google Fonts) ; corps 14 px #111928

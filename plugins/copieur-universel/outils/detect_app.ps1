@@ -16,7 +16,7 @@
   et des processus enfants (sans toucher au processus).
 
   Sortie : JSON (UTF-8) sur la console, et dans -Out si indiqué. Code retour 0 = analyse faite, 1 = erreur.
-  Windows PowerShell 5.1 ou PowerShell 7. Sous macOS/Linux (pwsh) : détection par fichiers seulement (non testée).
+  Windows uniquement (Windows PowerShell 5.1 ou PowerShell 7). Sous macOS : detect_app_mac.py (python3, même rôle).
 
 .PARAMETER Path
   Dossier d'installation, .exe ou raccourci .lnk (ex. "C:\Program Files\Microsoft VS Code"). Un nom de

@@ -64,7 +64,7 @@ function Out-Json($o) { Write-Utf8 ($o | ConvertTo-Json -Compress -Depth 4) }
 function Fail([string]$Msg) { Out-Json ([ordered]@{ ok = $false; erreur = $Msg }); exit 1 }
 
 if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
-  Fail 'headless.ps1 est propre à Windows. Ailleurs : google-chrome --headless=new --remote-debugging-port=9333 --user-data-dir="$(mktemp -d)" about:blank'
+  Fail 'headless.ps1 est propre à Windows. Ailleurs (macOS, Linux) : python3 headless.py lancer, dans le même dossier outils (mêmes actions lancer, etat, fermer ; plus trouver).'
 }
 
 $outils = $PSScriptRoot

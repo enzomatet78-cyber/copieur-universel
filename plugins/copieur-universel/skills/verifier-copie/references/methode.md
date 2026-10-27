@@ -5,7 +5,8 @@ avec Chrome/Edge headless, les fonctions `verif.js`, le comparateur de textes `t
 d'images `png_diff.py`, les schémas JSON, les gabarits de prompts, la lecture des rapports d'outils, le cas des
 logiciels de bureau et le modèle de rapport. Le *pourquoi* est dans `SKILL.md`. `OUTILS` = dossier `outils/`
 du plugin (voir SKILL.md, « Outils ») : `verif.js`, `textes.py`, `uia_rects.py`, `png_diff.py`,
-`headless.ps1`, `cdp_eval.py`, `check_links.py`, `scan_pii.py` y sont, prêts à l'emploi (rien à recopier).
+`headless.py`, `cdp_eval.py`, `check_links.py`, `scan_pii.py` y sont, prêts à l'emploi (rien à recopier).
+Commandes pour l'outil Bash, chemins entre guillemets ; sous Windows, `py` remplace `python3`.
 `<TRAVAIL>` = dossier de travail hors du clone (captures, GUIDE, résultats) ; on y range les mesures,
 **jamais** dans le dossier servi du clone.
 
@@ -30,11 +31,11 @@ Déroulé (toujours avec **son** `tabId`) :
    l'image d'un viewport plus large que lui (vu : copies d'écran de 800 px pour 1141 px CSS) : les mesures JS
    restent justes, mais pour comparer des images au pixel près, passer par le headless (§2, §6).
 3. `javascript_tool` : `localStorage.clear(); sessionStorage.clear(); location.reload()` (état propre).
-4. `javascript_tool` : contenu complet de `OUTILS\verif.js` (lu avec Read, §3) → `verif ok`. À réinjecter
+4. `javascript_tool` : contenu complet de `OUTILS/verif.js` (lu avec Read, §3) → `verif ok`. À réinjecter
    après chaque navigation ou rechargement.
 5. `javascript_tool` : `await __attendre()` → vérifier `fenetre` (= viewport voulu, DPR) et `polices`. Le
-   DPR du navigateur intégré suit l'échelle de Windows (1,25 mesuré ici) : sans effet sur les mesures JS
-   en px CSS, mais ses captures d'écran sont agrandies d'autant.
+   DPR du navigateur intégré suit l'écran (1,25 sous Windows à 125 %, 2 sur un Mac Retina) : sans effet sur
+   les mesures JS en px CSS, mais ses captures d'écran sont agrandies d'autant.
 6. Mesurer (`__mesures`, `__style`, `__textes`…), comparer avec `computer` screenshot / `zoom` et les images
    de capture (Read), lire la console (`read_console_messages`, `onlyErrors: true` puis tout).
 7. Survols : `computer` action `hover` sur l'élément, puis `zoom` sur la zone ; on ne simule pas `:hover` en JS
@@ -51,21 +52,24 @@ fichier (Write) pour `textes.py diff`, ou passer par Chrome headless (§2), qui 
 ## 2. Chrome/Edge headless + `cdp_eval.py` (sans navigateur intégré, ou pour écrire sur disque)
 
 Profil **temporaire** (jamais le profil de l'utilisateur), port libre, et on ne ferme que ce qu'on a lancé :
-`headless.ps1` s'en charge (testé avec Chrome 154 et Edge 155).
+`headless.py` s'en charge, sous macOS, Linux et Windows (Windows : `headless.ps1` reste disponible, mêmes
+actions ; testé avec Chrome 154 et Edge 155 sous Windows, Chrome sous macOS). Navigateur cherché par `CU_CHROME` (ou `CU_EDGE`), puis aux
+emplacements habituels (macOS : /Applications, ~/Applications, ~/Desktop, puis Spotlight).
+```bash
+python3 "$OUTILS/headless.py" lancer --viewport 1536x791 [--navigateur edge] [--echelle 2]
+   → {"ok":true,"port":61234,"pid":…,"profil":"/private/var/folders/…/T/cu-chrome-1a2b3c4d","viewport":"1536x791",…}
+     noter port et profil EN CLAIR (chaque appel Bash est un nouveau shell)
+python3 "$OUTILS/cdp_eval.py" --port <port> nav  --url "http://localhost:<PORT>/<route>" --wait 2 --console "$TRAVAIL/verif/<page>-console.json"
+python3 "$OUTILS/cdp_eval.py" --port <port> eval --file "$OUTILS/verif.js" --expr "__attendre()" --out "$TRAVAIL/verif/attente.json"
+python3 "$OUTILS/cdp_eval.py" --port <port> eval --file "$OUTILS/verif.js" --expr "__mesures('#main', 2)" --out "$TRAVAIL/verif/<page>-mesures.json"
+python3 "$OUTILS/cdp_eval.py" --port <port> eval --file "$OUTILS/verif.js" --expr "__textes('#main')" --out "$TRAVAIL/verif/<page>-textes.json"
+python3 "$OUTILS/cdp_eval.py" --port <port> nav  --url "http://localhost:<PORT>/<route>" --viewport 375x812 --wait 2
+python3 "$OUTILS/cdp_eval.py" --port <port> eval --viewport 375x812 --file "$OUTILS/verif.js" --expr "__debord()" --out "$TRAVAIL/verif/<page>-375.json"
+python3 "$OUTILS/cdp_eval.py" --port <port> shot --out "$TRAVAIL/verif/<page>-clone.png"
+python3 "$OUTILS/cdp_eval.py" --port <port> hover --selector "<CSS>" --out "$TRAVAIL/verif/<page>-survol.png" --leave
+python3 "$OUTILS/headless.py" fermer --profil "<profil noté>" --port <port>
 ```
-powershell -NoProfile -ExecutionPolicy Bypass -File "%OUTILS%\headless.ps1" -Action lancer -Viewport 1536x791 [-Navigateur edge] [-Echelle 1.25]
-   → {"ok":true,"port":61234,"profil":"C:\\…\\Temp\\cu-chrome-1a2b3c4d","viewport":"1536x791",…}     noter port et profil
-py "%OUTILS%\cdp_eval.py" --port <port> nav  --url "http://localhost:<PORT>/<route>" --wait 2 --console "<TRAVAIL>\verif\<page>-console.json"
-py "%OUTILS%\cdp_eval.py" --port <port> eval --file "%OUTILS%\verif.js" --expr "__attendre()" --out "<TRAVAIL>\verif\attente.json"
-py "%OUTILS%\cdp_eval.py" --port <port> eval --file "%OUTILS%\verif.js" --expr "__mesures('#main', 2)" --out "<TRAVAIL>\verif\<page>-mesures.json"
-py "%OUTILS%\cdp_eval.py" --port <port> eval --file "%OUTILS%\verif.js" --expr "__textes('#main')" --out "<TRAVAIL>\verif\<page>-textes.json"
-py "%OUTILS%\cdp_eval.py" --port <port> nav  --url "http://localhost:<PORT>/<route>" --viewport 375x812 --wait 2
-py "%OUTILS%\cdp_eval.py" --port <port> eval --viewport 375x812 --file "%OUTILS%\verif.js" --expr "__debord()" --out "<TRAVAIL>\verif\<page>-375.json"
-py "%OUTILS%\cdp_eval.py" --port <port> shot --out "<TRAVAIL>\verif\<page>-clone.png"
-py "%OUTILS%\cdp_eval.py" --port <port> hover --selector "<CSS>" --out "<TRAVAIL>\verif\<page>-survol.png" --leave
-powershell -NoProfile -ExecutionPolicy Bypass -File "%OUTILS%\headless.ps1" -Action fermer -Profil "<profil>" -Port <port>
-```
-- **La taille d'abord, la page ensuite** : `headless.ps1` règle le viewport sur `about:blank` avant toute
+- **La taille d'abord, la page ensuite** : `headless.py` règle le viewport sur `about:blank` avant toute
   navigation. Une page chargée dans une fenêtre trop petite puis agrandie peut garder une disposition décidée
   au chargement (barre repliée sous 768 px). Pour la même raison, un petit écran se mesure avec
   `nav --viewport 375x812` puis `eval`/`shot --viewport 375x812` : une fenêtre headless ne descend pas sous
@@ -75,13 +79,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "%OUTILS%\headless.ps1" -Act
   → code 4 s'il y a des erreurs. Seul avertissement attendu : « cdn.tailwindcss.com should not be used in
   production ».
 - **Échelle** : mesurer au DPR de la capture. Une appli de bureau capturée à 125 % se compare à un rendu
-  `--viewport LxH@1.25` (ou un navigateur lancé avec `-Echelle 1.25`) : à DPR 1, les hauteurs de ligne
-  s'arrondissent autrement (vu : cartes de 75 px contre 77).
-- **Fermeture** : `headless.ps1 -Action fermer` quitte proprement le navigateur, arrête en boucle les seuls
+  `--viewport LxH@1.25` (ou un navigateur lancé avec `--echelle 1.25`) : à DPR 1, les hauteurs de ligne
+  s'arrondissent autrement (vu : cartes de 75 px contre 77). Une capture faite sur un Mac Retina est en 2x :
+  `shot --viewport LxH@2` (testé : 1536x791@2 → image 3072×1582).
+- **Fermeture** : `headless.py fermer` quitte proprement le navigateur, arrête en boucle les seuls
   processus de **ce** profil (Chrome ou Edge), puis supprime le profil (jusqu'à 60 s : les processus enfants le
   gardent verrouillé 10 à 20 s). S'il répond `ok:false`, le dire avec le chemin restant plutôt qu'annoncer un
-  nettoyage fait. Pourquoi un script : des lignes PowerShell recopiées finissaient avec `chrome.exe` codé en
-  dur alors qu'on avait lancé Edge, des accents illisibles (fichier sans BOM), et l'outil PowerShell de
+  nettoyage fait. Jamais `open -a "Google Chrome"` ni un navigateur sans `--headless=new` et profil
+  temporaire : il s'ouvrirait dans le Chrome de l'utilisateur, avec ses sessions. Pourquoi un script : des
+  lignes PowerShell recopiées finissaient avec `chrome.exe` codé en dur alors qu'on avait lancé Edge, des accents illisibles (fichier sans BOM), et l'outil PowerShell de
   Claude Code bloque `Remove-Item` sur un chemin contenu dans une variable.
 - **Image pleine page** (`shot --full`, `--selector`) : Chrome masque alors les barres de défilement des
   conteneurs internes et ne les rend qu'au rechargement ; `cdp_eval.py` 1.2 les rétablit et avertit s'il n'y
@@ -93,7 +99,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "%OUTILS%\headless.ps1" -Act
 
 ---
 
-## 3. `verif.js` — fonctions de mesure (`OUTILS\verif.js`)
+## 3. `verif.js` — fonctions de mesure (`OUTILS/verif.js`)
 
 | Fonction | Renvoie | Sert à |
 |---|---|---|
@@ -104,7 +110,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "%OUTILS%\headless.ps1" -Act
 | `__textes(sel)` | textes bloc par bloc + attributs, espaces spéciaux gardés | §4 ci-dessous |
 | `__liens()` | liens du DOM rendu, format `--urls-file` | contrôle final |
 | `__reseau()` | ressources chargées hors du serveur local, par hôte | confidentialité |
-| `__formulaires()` | formulaires : action, mot de passe, carte | confidentialité |
+| `__formulaires()` | éléments `<form>` seulement : action, mot de passe, carte (un envoi par script se voit avec `__reseau` et le `grep` du SKILL §4.4) | confidentialité |
 | `__image()`, `__couleur(x, y)`, `__bords(axe, pos, de, a)` | mesures dans une **image** de capture ouverte seule dans un onglet | §6 ci-dessous |
 
 Le fichier se lit (Read) puis s'injecte tel quel dans le navigateur intégré, ou se passe à `cdp_eval.py eval
@@ -112,19 +118,23 @@ Le fichier se lit (Read) puis s'injecte tel quel dans le navigateur intégré, o
 
 ---
 
-## 4. Textes caractère par caractère — `textes.py` (`OUTILS\textes.py`)
+## 4. Textes caractère par caractère — `textes.py` (`OUTILS/textes.py`)
 
 Même découpage des deux côtés : un texte par bloc (les balises en ligne `span`, `b`, `strong`, `em`… sont
 recollées ; `a`, `button`, `label` comptent comme des blocs), espaces ordinaires normalisés, **U+00A0, U+202F, U+2009 gardés**, commentaires ignorés (les
 `<!-- EN: … -->` et `<!-- +12 lignes non capturées -->` des dumps ne gênent pas), SVG, scripts et styles ignorés.
 
 ```
-py "%OUTILS%\textes.py" capture "<capture>\<page>\dom-page.html" > "<TRAVAIL>\verif\<page>-capture-textes.json"
+python3 "$OUTILS/textes.py" capture "<capture>/<page>/dom-page.html" > "$TRAVAIL/verif/<page>-capture-textes.json"
    (côté clone : __textes('<zone qui correspond au dump>') → <page>-textes.json, §1 ou §2)
-py "%OUTILS%\textes.py" diff "<…>-capture-textes.json" "<…>-textes.json" --attributs [--masquer-chiffres]
+python3 "$OUTILS/textes.py" diff "<…>-capture-textes.json" "<…>-textes.json" --attributs [--masquer-chiffres]
 ```
 Sortie : `~` texte modifié (avec l'écart en codes, ex. `«<U+0020 SPACE>» -> «<U+00A0 NO-BREAK SPACE>»`),
-`-` absent du clone, `+` en trop dans le clone, puis un bilan ; code 0 si tout est identique.
+`-` absent du clone, `+` en trop dans le clone, puis un bilan ; code 0 si tout est identique, 1 s'il y a des
+écarts, 2 si un fichier manque ou si `__textes` a échoué (`{"erreur": "racine introuvable…"}` : mauvais
+sélecteur). Dans un bloc de textes différents, chaque texte de la capture est apparié au plus proche du clone
+(sinon « absent » / « en trop »). Si le dump est un document complet, son `<title>` est comparé au `titre`
+renvoyé par `__textes` (`~ titre`).
 - **Zone** : le dump couvre souvent le conteneur principal ou une modale (voir l'en-tête du fichier `dom-*.html`
   et `notes.md`) ; passer à `__textes` le sélecteur de la même zone dans le clone.
 - **Données fictives** : les noms et valeurs diffèrent forcément ; `--masquer-chiffres` remplace les chiffres
@@ -166,27 +176,29 @@ Vérificateur d'unité, correcteur, contrôleur final → `VERIFY` :
 
 **Comparer deux images** — `png_diff.py` (Python standard ; testé sur les captures du clone iClosed) :
 ```
-py "%OUTILS%\png_diff.py" diff "<capture>\<page>\01-haut.png" "<TRAVAIL>\verif\<page>-clone.png" --out "<TRAVAIL>\verif\<page>-ecarts.png" [--seuil 24] [--zone x,y,l,h] [--decalage dx,dy]
+python3 "$OUTILS/png_diff.py" diff "<capture>/<page>/01-haut.png" "$TRAVAIL/verif/<page>-clone.png" --out "$TRAVAIL/verif/<page>-ecarts.png" [--seuil 24] [--zone x,y,l,h] [--decalage dx,dy]
 → <page>-clone.png : 36749 pixels differents sur 304500 (12.069 %, seuil 24) ; boite x=8 y=0 l=364 h=812 ; ecart moyen …
     zone x 128-191, y 192-255 : 1450 pixels …
 ```
 Le clone se rend **au même format** que la capture (`shot --viewport LxH@DPR` : une capture de logiciel à
-125 % se compare à `--viewport 1141x658@1.25`) ; `--out` dessine les écarts en rouge sur l'original en gris.
+125 % se compare à `--viewport 1141x658@1.25`, une capture Retina d'un Mac à `@2`) ; `--out` dessine les
+écarts en rouge sur l'original en gris.
 Lire les zones touchées plutôt que le pourcentage seul : un carrousel qui a tourné, un curseur qui clignote ou
 l'anticrénelage ClearType d'une appli native créent des écarts sans défaut. À l'inverse, un écart de teinte
 faible passe sous le seuil par défaut (fond de survol gris-100 sur blanc : 12 unités, donc « 0 pixel » à
 `--seuil 24`) : pour un survol ou une bordure pâle, comparer la zone avec `--zone x,y,l,h --seuil 6`, ou lire
 l'« écart moyen par canal ». Une image identique au pixel près
-(0 pixel au-dessus du seuil) est une preuve forte ; c'est ainsi qu'un décalage de 52 px du contenu à 375 px a
-été trouvé sur l'essai web. Une paire pleine page prend 5 à 20 s. `png_diff.py couleur <png> x,y` donne la
+(0 pixel au-dessus du seuil ET tailles identiques) est une preuve forte : si les tailles diffèrent sans
+`--zone`, seule la partie commune est comparée, l'outil répond code 1 et `"taillesDifferentes": true`. C'est
+ainsi qu'un décalage de 52 px du contenu à 375 px a été trouvé sur l'essai web. Une paire pleine page prend 5 à 20 s. `png_diff.py couleur <png> x,y` donne la
 couleur exacte d'un pixel ; `png_diff.py encre <png> --zone x,y,l,h` la boîte du texte ou de l'icône d'une zone
 (position réelle de l'encre, utile quand un rectangle UIA ne la suit pas).
 
 **Comparer la structure : « dump contre dump »** — passer le clone dans le **même kit** que la capture, en mode
 raw, et comparer les deux fichiers ligne à ligne :
 ```
-py "%OUTILS%\cdp_eval.py" --port <port> eval --file "%OUTILS%\capture-kit.js" --expr "__config({raw:true}); __dump('main', 8)" --out "<TRAVAIL>\verif\<page>-dump-clone.html"
-fc /n "<capture>\<page>\dom-initial.html" "<TRAVAIL>\verif\<page>-dump-clone.html"      (Git Bash : diff)
+python3 "$OUTILS/cdp_eval.py" --port <port> eval --file "$OUTILS/capture-kit.js" --expr "__config({raw:true}); __dump('main', 8)" --out "$TRAVAIL/verif/<page>-dump-clone.html"
+diff -u "<capture>/<page>/dom-initial.html" "$TRAVAIL/verif/<page>-dump-clone.html"      (cmd : fc /n)
 ```
 Les seules différences attendues sont les données fictives et les attributs propres au clone (`data-*` de la
 coque) ; une classe ou une balise différente est un écart à expliquer.
@@ -194,7 +206,7 @@ coque) ; une classe ou une balise différente est un écart à expliquer.
 **Mesurer une image dans le navigateur** (alternative) : l'ouvrir seule dans un onglet, servie en local
 sur un **autre port** que le clone (pas dans le dossier du clone), puis `verif.js` :
 ```
-py -m http.server <PORT2> --bind 127.0.0.1 --directory "<capture>\<page>"      (processus à soi, arrêté à la fin)
+python3 -m http.server <PORT2> --bind 127.0.0.1 --directory "<capture>/<page>"      (processus à soi, arrêté à la fin)
 ```
 Onglet → `http://127.0.0.1:<PORT2>/01-haut.png`, injecter `verif.js`, puis :
 - `__image()` → taille de l'image ; `÷ fenetre` de la capture = DPR (1,25 → diviser toutes les mesures) ;
@@ -215,7 +227,7 @@ Les JPEG décalent les couleurs de quelques unités : comparer à ±6 par compos
 |---|---|---|
 | `resume` | pages, `pagesEnErreur`, références par source (html, css, js, rendu), `ciblesCassees`, `cassesSeulementJs`, avertissements par type, ignorés | chiffres du rapport final |
 | `pagesEnErreur` | page qui ne répond pas 200 | la réparer, ou le serveur sert un autre dossier (voir `contenu-different`) |
-| `cassees[]` | `cible`, `raison` (absent du disque, HTTP 404, dossier sans index, chemin `C:\`), `occurrences` (page, ligne, colonne, balise, attribut, brut), `sources` | HTML/CSS : cassé sûr → corriger le lien ou créer la page ; `["js"]` seul : vérifier dans le rendu si le chemin sert de lien |
+| `cassees[]` | `cible`, `raison` (absent du disque, HTTP 404, dossier sans index, chemin du disque local `C:\`, `file:`, `/Users/<nom>/…`), `occurrences` (page, ligne, colonne, balise, attribut, brut), `sources` | HTML/CSS : cassé sûr → corriger le lien ou créer la page ; `["js"]` seul : vérifier dans le rendu si le chemin sert de lien |
 | `horsPerimetre[]` | cibles cassées sous un préfixe `--hors-perimetre` (pages volontairement non construites) | les lister dans le rapport ; elles ne font pas échouer le contrôle |
 | `avertissements[]` | `casse-differente`, `ancre-introuvable`, `reference-original` (url, nature `navigation`/`ressource`/`js`, nombre), `contenu-different`, `servi-hors-disque`, `titre-absent`, `urls-file-vide` | navigation vers l'original → lien local ; ressource → seulement si écart accepté ; `js` vers une API → à supprimer |
 | `externes` | hôtes externes référencés (non visités), exemples | repérer CDN, polices, et toute fuite vers l'original |
@@ -275,9 +287,9 @@ ne doivent réapparaître nulle part.
   la fenêtre, `Children`), en **pixels physiques** : px CSS = valeur ÷ `echelle`.
 - Le clone se mesure comme une page web, à la taille CSS de la fenêtre d'origine (`fidelite.md` §11 de
   `reconstruire-appli` pour la barre de titre et l'échelle). Rectangles de référence en px CSS :
-  `py "%OUTILS%\uia_rects.py" uia-principale.json 3 [--json]` (menus ouverts de `autresFenetres` compris), à
+  `python3 "$OUTILS/uia_rects.py" uia-principale.json 3 [--json]` (menus ouverts de `autresFenetres` compris), à
   comparer à `__mesures('body', 3)` du clone.
-- **Images** : rendre le clone au facteur de la capture — Edge/Chrome headless (`headless.ps1`) puis
+- **Images** : rendre le clone au facteur de la capture — Chrome/Edge headless (`headless.py lancer`) puis
   `cdp_eval.py shot --viewport 1141x658@1.25` donne une image superposable à celle de `window_shot.ps1`
   (1426×823 pour une fenêtre de 1141×658 px CSS à 125 %) ; `png_diff.py diff` pour l'écart, `png_diff.py encre`
   pour la position réelle d'un texte ou d'une icône. Le navigateur intégré ne convient pas ici (viewport réduit
@@ -289,7 +301,15 @@ ne doivent réapparaître nulle part.
   affiché (« Ln 1, Col 1 ») : le texte affiché se vérifie sur l'image, le `Name` dans l'`aria-label` du clone.
   Les largeurs des menus WinUI se mesurent aussi sur l'image (UIA ignore la colonne des raccourcis).
 - Comportement : menus (Échap, un seul ouvert), raccourcis affichés, boîtes de dialogue ouvertes/fermées
-  comme sur les images ; les raccourcis réservés au navigateur (Ctrl+W, Ctrl+N, Ctrl+T) sont une limite à dire.
+  comme sur les images ; les raccourcis réservés au navigateur (Ctrl+W, Ctrl+N, Ctrl+T ; sur Mac Cmd+W,
+  Cmd+N, Cmd+T, Cmd+Q) sont une limite à dire.
+- **macOS** : `uia_dump.ps1` et `window_shot.ps1` sont Windows uniquement (et `uia_rects.py`, qui lit leurs relevés).
+  Une appli Electron/CEF se vérifie comme une page (DOM de la capture par CDP) ; une appli native (AppKit,
+  SwiftUI, Catalyst) n'a pour référence que ses images : `screencapture -x -o -l <windowid> ref.png` (fenêtre
+  de l'instance lancée pour la capture, image Retina en 2x, sans ombre avec `-o`), à comparer au clone rendu
+  en `@2` ; aucun équivalent à `uia_rects` : positions lues sur l'image (`png_diff.py encre`), fidélité
+  réduite à dire dans le rapport. L'autorisation « Enregistrement de l'écran » est donnée par l'utilisateur
+  lui-même, jamais par l'agent.
 
 ---
 

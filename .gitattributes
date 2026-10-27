@@ -1,0 +1,7 @@
+# Scripts Windows : CRLF à l'extraction (lancer-app.cmd s'arrête s'il trouve des LF seuls).
+*.cmd     text eol=crlf
+*.bat     text eol=crlf
+*.ps1     text eol=crlf
+# Scripts macOS / Linux : LF.
+*.command text eol=lf
+*.sh      text eol=lf

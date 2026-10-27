@@ -17,7 +17,7 @@
  * MODE D'EMPLOI (detail : skills/copier-une-appli/references/orchestration.md)
  *  1. Copier ce fichier dans le dossier de travail (jamais dans le clone).
  *  2. Remplir CONFIG et UNITS ci-dessous, OU les passer au lancement :
- *       Workflow({ scriptPath: "<travail>\\workflow.js",
+ *       Workflow({ scriptPath: "<travail>/workflow.js",
  *                  args: { config: { ...champs de CONFIG... }, units: [ ...unites... ] } })
  *     args.config est fusionne dans CONFIG (args.config.fondation dans CONFIG.fondation) ;
  *     args.units remplace UNITS s'il est non vide.
@@ -26,10 +26,12 @@
  *     fondation.unite = { key, section, nav, routes, notes } : le script fait la fondation puis s'arrete
  *     (fondation.arreterApres = true) pour que l'utilisateur la valide avant la suite.
  *     Logiciel (modes electron / natif) : l'agent principal l'a lance (profil temporaire, mises a jour
- *     automatiques bloquees) et a note son PID et le handle de sa fenetre dans le notes.md de la capture puis
- *     dans le GUIDE (section 1) ; les agents visent ce PID, jamais une autre instance.
- *     Site public en headless : l'agent principal a lance le navigateur (outils/headless.ps1 -Action lancer)
- *     et passe son port dans CONFIG.cdpPort ; il le ferme a la fin (headless.ps1 -Action fermer).
+ *     automatiques bloquees) et a note son PID (et, sous Windows, le handle de sa fenetre) dans le notes.md de
+ *     la capture puis dans le GUIDE (section 1) ; les agents visent ce PID, jamais une autre instance.
+ *     Mode natif = Windows uniquement (refuse ailleurs). Sous macOS : appli Electron/CEF/NW.js -> mode
+ *     electron ; appli native (AppKit, SwiftUI...) -> pas de mode, recreation d'apres images (voir le SKILL).
+ *     Site public en headless : l'agent principal a lance le navigateur (python3 outils/headless.py lancer
+ *     --port 9333) et passe son port dans CONFIG.cdpPort ; il le ferme a la fin (headless.py fermer --profil).
  *  4. Reprise apres interruption : relancer avec resumeFromRunId (meme script + memes args = les resultats
  *     deja obtenus sont rejoues depuis le cache).
  * Interdits dans un script Workflow : Date.now(), Math.random(), new Date() sans argument.
@@ -57,7 +59,8 @@ const CONFIG = {
   // Nom de l'appli tel que l'utilisateur la designe (ex. 'Notion', 'Bloc-notes Windows', 'mon logiciel de caisse')
   appli: 'A_REMPLIR',
   // 'web-connecte' (Claude in Chrome, compte de l'utilisateur) | 'web-public' (navigateur integre ou Chrome
-  // headless + cdp_eval.py) | 'electron' (Electron / WebView2 via CDP) | 'natif' (Windows natif : UIA + captures)
+  // headless + cdp_eval.py) | 'electron' (Electron / WebView2 / CEF / NW.js via CDP, Windows ou macOS)
+  // | 'natif' (Windows natif : UIA + captures ; Windows uniquement)
   mode: 'web-connecte',
   // URL de base de l'original (https://...) ou, pour un logiciel : nom du processus / titre de fenetre / chemin de l'exe
   original: 'A_REMPLIR',
@@ -66,27 +69,34 @@ const CONFIG = {
   urlLocale: 'http://localhost:8770',
   // Dossier de travail HORS du clone (captures, GUIDE, inventaire) -- ex. le scratchpad de la session
   travail: 'A_REMPLIR',
-  // Dossier skills/ du plugin = <Base directory du skill copier-une-appli>\.. (chemin absolu)
+  // Dossier skills/ du plugin = <Base directory du skill copier-une-appli>/.. (chemin absolu)
   skills: 'A_REMPLIR',
-  // Facultatifs (deduits si vides) : outils = <skills>\..\outils ; captures = <travail>\capture ; guide = <travail>\GUIDE.md
+  // Facultatifs (deduits si vides) : outils = <skills>/../outils ; captures = <travail>/capture ; guide = <travail>/GUIDE.md
   outils: '',
   captures: '',
   guide: '',
+  // Facultatifs (deduits des chemins si vides) : plateforme 'windows' si un chemin a un antislash ou une lettre
+  // de lecteur (C:/...), sinon 'macos' (mettre 'linux' a la main) ; python = interpreteur des commandes donnees
+  // aux agents ('py' sous Windows, 'python3' ailleurs)
+  plateforme: '',
+  python: '',
   // Viewport (web) ou taille de fenetre (bureau) de reference des captures
   viewport: '1536x791',
   // Ce qu'on garde tel quel (titulaire du compte, son email, son organisation...) ; tout le reste est fictif
   garder: [],
-  // Domaines des emails fictifs autorises par scan_pii.py
-  domainesFictifs: ['exemple.com', 'exemple.fr', 'exemple.org'],
-  // Port de debogage (electron, ou web-public en Chrome headless) -- l'agent principal a lance le programme
-  // (habitudes du plugin : 9229 pour une appli Electron, 9333 pour Chrome/Edge headless)
-  cdpPort: 9229,
+  // Domaines des emails fictifs autorises par scan_pii.py (motifs : exemple.* couvre exemple.com/.fr/.org)
+  domainesFictifs: ['exemple.*'],
+  // Port de debogage (electron, ou web-public en Chrome headless) -- l'agent principal a lance le programme.
+  // 0 = habitude du plugin selon le mode : 9229 pour une appli Electron, 9333 pour Chrome/Edge headless
+  cdpPort: 0,
   // Page de reference deja validee (route), lue par tous les agents comme modele de qualite
   pageReference: '',
   fondation: {
     faite: true,          // true : fondation deja validee (cas normal)
     arreterApres: true,   // si le script fait la fondation : s'arreter ensuite pour validation par l'utilisateur
     unite: null,          // { key, section, nav, routes: [...], notes } de la page de reference
+    resultat: null,       // relance apres arreterApres : champ fondation du retour precedent (ses demandes
+                          // shellIssues / sectionIssues restantes remontent alors jusqu'a l'agent Coque)
   },
   // true : chaque passe de verification d'unite = relecteurs par angle + verificateurs adverses + correcteur
   // (plus fiable, environ 4 fois plus d'agents). false : un verificateur qui corrige lui-meme (comme iClosed).
@@ -129,17 +139,39 @@ const UNITS = [
 // args doit etre un objet JSON reel ; une chaine JSON (erreur frequente) est relue, sinon refusee clairement
 let A = {}
 if (typeof args === 'string' && args.trim()) {
-  try { A = JSON.parse(args) } catch (e) {
+  try { A = JSON.parse(args) } catch (e) { A = null }
+  if (!A || typeof A !== 'object' || Array.isArray(A)) {
     throw new Error('Gabarit copieur-universel : args est une cha\u00eene illisible. Passer un objet JSON r\u00e9el : args: { config: {...}, units: [...] }')
   }
 } else if (typeof args === 'object' && args) {
   A = args
 }
+const estObjet = (o) => !!o && typeof o === 'object' && !Array.isArray(o)
+if (!estObjet(A) || (A.config !== undefined && A.config !== null && !estObjet(A.config))) {
+  throw new Error('Gabarit copieur-universel : args doit \u00eatre un objet { config: {...}, units: [...] } (config : un objet, pas une cha\u00eene ni un tableau).')
+}
 const C = Object.assign({}, CONFIG, A.config || {})
 C.fondation = Object.assign({}, CONFIG.fondation, (A.config && A.config.fondation) || {})
 const UNITES = (Array.isArray(A.units) && A.units.length) ? A.units : UNITS
 
-const SEP = /\\/.test(String(C.projet) + String(C.travail) + String(C.skills)) ? '\\' : '/'
+// Chemins sans separateur final ('C:\x\clone\' : le shell lirait \" comme un guillemet echappe)
+for (const k of ['projet', 'travail', 'skills', 'outils', 'captures']) {
+  const s = String(C[k] || '')
+  const t = s.replace(/[\\/]+$/, '')
+  if (t !== s && /[\\/]/.test(t)) C[k] = t
+}
+const CHEMINS = [C.projet, C.travail, C.skills].map(String)
+const SEP = /\\/.test(CHEMINS.join('')) ? '\\' : '/'
+// Plateforme : Windows si un chemin a un antislash ou une lettre de lecteur (C:\x, C:/x) ; sinon macOS (ou Linux)
+C.plateforme = String(C.plateforme || (CHEMINS.some(p => /\\|^[A-Za-z]:[\\/]/.test(p)) ? 'windows' : 'macos')).toLowerCase()
+const WINDOWS = C.plateforme === 'windows'
+const NOM_PLATEFORME = { windows: 'Windows', macos: 'macOS', linux: 'Linux' }[C.plateforme] || C.plateforme
+// Interpreteur Python des commandes donnees aux agents
+C.python = String(C.python || (WINDOWS ? 'py' : 'python3'))
+const PY = C.python
+// Port de debogage : 0 ou vide = habitude du plugin selon le mode
+const PORT_DONNE = C.cdpPort
+C.cdpPort = Number(PORT_DONNE) || (C.mode === 'web-public' ? 9333 : 9229)
 function join() {
   const parts = Array.prototype.slice.call(arguments).filter(p => p !== undefined && p !== null && p !== '')
   return parts.map((p, i) => {
@@ -167,22 +199,39 @@ const HOTE_ORIGINAL = ((String(C.original).match(/^https?:\/\/([^\/?#:]+)/i) || 
 // Verification des parametres AVANT de lancer le moindre agent
 ;(function verifierParametres() {
   const manque = []
+  const KEY_RX = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
   for (const k of ['appli', 'original', 'projet', 'travail', 'skills', 'urlLocale']) {
     if (!C[k] || /A_REMPLIR/.test(String(C[k]))) manque.push('CONFIG.' + k)
   }
   if (MODES_VALIDES.indexOf(C.mode) === -1) manque.push('CONFIG.mode (' + MODES_VALIDES.join(' | ') + ')')
+  if (['windows', 'macos', 'linux'].indexOf(C.plateforme) === -1) manque.push("CONFIG.plateforme ('windows' | 'macos' | 'linux', ou vide = d\u00e9duite des chemins)")
+  if (C.mode === 'natif' && !WINDOWS) {
+    manque.push("CONFIG.mode 'natif' : Windows uniquement (uia_dump.ps1, window_shot.ps1 ; plateforme d\u00e9tect\u00e9e : " + NOM_PLATEFORME +
+      "). Sous macOS : appli Electron / CEF / NW.js -> mode 'electron' ; appli native (AppKit, SwiftUI, Catalyst, Tauri) -> pas de Workflow, recr\u00e9ation d'apr\u00e8s images \u00e0 fid\u00e9lit\u00e9 r\u00e9duite (copier-une-appli, \u00e9tape 2)")
+  }
   if (!Array.isArray(C.garder)) manque.push('CONFIG.garder (tableau)')
-  if (!C.fondation.faite && !(C.fondation.unite && C.fondation.unite.key && C.fondation.unite.routes)) {
-    manque.push('CONFIG.fondation.unite (obligatoire si fondation.faite = false)')
+  if (!Array.isArray(C.domainesFictifs)) manque.push('CONFIG.domainesFictifs (tableau, ex. ["exemple.*"])')
+  if (PORT_DONNE && !(Number.isInteger(Number(PORT_DONNE)) && Number(PORT_DONNE) >= 1 && Number(PORT_DONNE) <= 65535)) {
+    manque.push('CONFIG.cdpPort (entier de 1 \u00e0 65535, ou 0 = habitude du mode)')
+  }
+  if (A.units !== undefined && A.units !== null && !Array.isArray(A.units)) manque.push('args.units (doit \u00eatre un tableau d\'unit\u00e9s, comme unites.json)')
+  if (!C.fondation.faite) {
+    const fu = C.fondation.unite
+    if (!estObjet(fu)) manque.push('CONFIG.fondation.unite (obligatoire si fondation.faite = false : contenu de fondation.json)')
+    else {
+      if (!fu.key || !KEY_RX.test(String(fu.key))) manque.push('CONFIG.fondation.unite.key (lettres ASCII, chiffres, . _ - ; ni espace ni accent)')
+      if (!Array.isArray(fu.routes) || !fu.routes.length) manque.push('CONFIG.fondation.unite.routes (tableau non vide)')
+    }
   }
   const besoinUnites = C.fondation.faite || !C.fondation.arreterApres
   if (besoinUnites) {
     if (!UNITES.length) manque.push('UNITS (vide)')
-    if (UNITES.some(u => u.exemple)) manque.push('UNITS (contient encore les exemples : exemple: true)')
+    if (UNITES.some(u => u && u.exemple)) manque.push('UNITS (contient encore les exemples : exemple: true)')
     const vues = {}
     const proprios = {}
     UNITES.forEach((u, i) => {
-      if (!u.key || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(String(u.key))) manque.push('UNITS[' + i + '].key (obligatoire : lettres ASCII, chiffres, . _ - ; ni espace ni accent)')
+      if (!estObjet(u)) { manque.push('UNITS[' + i + '] (objet attendu)'); return }
+      if (!u.key || !KEY_RX.test(String(u.key))) manque.push('UNITS[' + i + '].key (obligatoire : lettres ASCII, chiffres, . _ - ; ni espace ni accent)')
       if (vues[u.key]) manque.push('UNITS : key en double ' + u.key)
       vues[u.key] = true
       if (!u.section) manque.push('UNITS[' + i + '].section')
@@ -197,6 +246,11 @@ const HOTE_ORIGINAL = ((String(C.original).match(/^https?:\/\/([^\/?#:]+)/i) || 
     throw new Error('Gabarit copieur-universel : parametres manquants ou invalides -> ' + manque.join(' ; '))
   }
 })()
+log(`Plateforme ${NOM_PLATEFORME}, Python : ${PY}` + (C.mode === 'web-public' || C.mode === 'electron'
+  ? ` ; port de d\u00e9bogage des captures : ${C.cdpPort}${PORT_DONNE ? '' : ' (habitude du mode : le v\u00e9rifier)'}` : ''))
+if (C.fondation.faite && !C.pageReference) {
+  log('Attention : CONFIG.pageReference vide, les agents n\'auront pas de page de r\u00e9f\u00e9rence \u00e0 ouvrir comme mod\u00e8le (orchestration.md \u00a77).')
+}
 
 /* ------------------------------------------------------------------------------------------------
  * 4. SCHEMAS DE SORTIE DES AGENTS
@@ -282,21 +336,28 @@ const contexte = () => `CONTEXTE \u2014 recr\u00e9ation locale et fid\u00e8le de
 - Guide du projet (conventions, gabarit de page, API de la coque, donn\u00e9es fictives) : ${C.guide} \u2014 lis-le en premier.${C.pageReference ? `
 - Page de r\u00e9f\u00e9rence valid\u00e9e (mod\u00e8le de qualit\u00e9, \u00e0 ouvrir et \u00e0 lire) : ${C.urlLocale}${C.pageReference}` : ''}
 - Captures : ${join(C.captures, '<unit\u00e9>', '<page>')} (notes.md, dom-*.html ou uia-*.json, images).
-- Outils du plugin : ${C.outils} (ex. py "${join(C.outils, 'check_links.py')}" \u2026).
+- Outils du plugin : ${C.outils} (ex. ${PY} "${join(C.outils, 'check_links.py')}" \u2026).
 - R\u00e8gles (lecture seule, donn\u00e9es fictives, aucun contournement) : ${REGLES} \u2014 pi\u00e8ges connus : ${LECONS}.
 - Donn\u00e9es personnelles : fictives ; on garde tels quels : ${garderTxt()}.
 - Viewport / taille de fen\u00eatre de r\u00e9f\u00e9rence : ${C.viewport}.
+- Machine : ${NOM_PLATEFORME} ; commandes pour l'outil Bash (${WINDOWS ? 'Git Bash' : 'bash/zsh'}), Python = ${PY}, chemins entre guillemets ; chaque appel Bash est un nouveau shell : \u00e9cris en entier les valeurs not\u00e9es (PID, port, profil).
 Les dossiers se cr\u00e9ent avec Bash (mkdir -p, chemins entre guillemets). Tout texte destin\u00e9 \u00e0 l'utilisateur est en fran\u00e7ais.`
 
 const OUTILS_NAVIGATEUR_INTEGRE = 'mcp__Claude_Browser__tabs_create,mcp__Claude_Browser__navigate,mcp__Claude_Browser__computer,mcp__Claude_Browser__javascript_tool,mcp__Claude_Browser__resize_window,mcp__Claude_Browser__read_console_messages,mcp__Claude_Browser__get_page_text,mcp__Claude_Browser__tabs_close'
 
 const navigateurIntegre = () => `Navigateur int\u00e9gr\u00e9 : charge ses outils en une fois via ToolSearch \u00ab select:${OUTILS_NAVIGATEUR_INTEGRE} \u00bb. Cr\u00e9e TON onglet (tabs_create), passe toujours ton tabId, resize_window au viewport ${C.viewport}, mesure avec javascript_tool (injecte le contenu de ${join(C.outils, 'verif.js')} : __attendre, __mesures, __textes, __debord, __liens, __reseau ; ou getBoundingClientRect, getComputedStyle, scrollHeight), compare avec computer screenshot et les images de capture (Read), lis la console (read_console_messages). Ferme ton onglet \u00e0 la fin. D'autres agents travaillent dans d'autres onglets : n'y touche jamais. Le navigateur r\u00e9el de l'utilisateur (Claude in Chrome) est r\u00e9serv\u00e9 aux agents de capture.
-Navigateur int\u00e9gr\u00e9 absent ou plein (\u00ab Tab cap reached \u00bb) : Chrome/Edge headless \u00e0 toi sur profil temporaire \u2014 powershell -NoProfile -ExecutionPolicy Bypass -File "${join(C.outils, 'headless.ps1')}" -Action lancer -Viewport ${C.viewport} (note port et profil), puis py "${join(C.outils, 'cdp_eval.py')}" --port <port> nav --url <page> --console (erreurs console du chargement), eval --file "${join(C.outils, 'verif.js')}" --expr "__mesures('#main', 2)", shot --out <png>, hover --selector <CSS> (survol r\u00e9el) ; \u00e0 la fin headless.ps1 -Action fermer -Profil <profil> -Port <port>. Comparaison d'images au pixel : py "${join(C.outils, 'png_diff.py')}" diff <capture.png> <clone.png> (m\u00eame \u00e9chelle : --viewport LxH@DPR de la capture). M\u00e9thode : verifier-copie, references/methode.md.`
+Navigateur int\u00e9gr\u00e9 absent ou plein (\u00ab Tab cap reached \u00bb) : Chrome/Edge headless \u00e0 toi sur profil temporaire \u2014 ${PY} "${join(C.outils, 'headless.py')}" lancer --viewport ${C.viewport} (une ligne JSON : note port et profil en entier), puis ${PY} "${join(C.outils, 'cdp_eval.py')}" --port <port> nav --url <page> --console (erreurs console du chargement), eval --file "${join(C.outils, 'verif.js')}" --expr "__mesures('#main', 2)", shot --out <png>, hover --selector <CSS> (survol r\u00e9el) ; \u00e0 la fin ${PY} "${join(C.outils, 'headless.py')}" fermer --profil "<profil not\u00e9>" --port <port>. Jamais de navigateur lanc\u00e9 autrement (ni open -a, ni binaire sans --headless=new et profil temporaire) : il s'ouvrirait dans celui de l'utilisateur, avec ses sessions. Comparaison d'images au pixel : ${PY} "${join(C.outils, 'png_diff.py')}" diff <capture.png> <clone.png> (m\u00eame \u00e9chelle : --viewport LxH@DPR de la capture ; identique = 0 pixel diff\u00e9rent ET tailles identiques). M\u00e9thode : verifier-copie, references/methode.md.`
 
 /* Commandes de controle (check_links.py signale par --original toute reference a l'original : navigation et
- * scripts a corriger, ressources publiques statiques tolerees ; scan_pii.py : code retour non nul = trouve) */
-const cmdCheckLinks = () => `py "${join(C.outils, 'check_links.py')}" --root "${C.projet}" --base ${C.urlLocale}${HOTE_ORIGINAL ? ` --original ${HOTE_ORIGINAL}` : ''}`
-const cmdScanPii = () => `py "${join(C.outils, 'scan_pii.py')}" --root "${C.projet}"${C.garder.filter(g => /@/.test(g)).map(g => ` --allow "${g}"`).join('')}${(C.domainesFictifs || []).map(d => ` --allow-domain ${d}`).join('')}`
+ * scripts a corriger, ressources publiques statiques tolerees ; scan_pii.py : code retour non nul = trouve).
+ * Motifs --allow-domain entre guillemets : zsh refuse un exemple.* sans correspondance avant de lancer l'outil. */
+const cmdCheckLinks = () => `${PY} "${join(C.outils, 'check_links.py')}" --root "${C.projet}" --base ${C.urlLocale}${HOTE_ORIGINAL ? ` --original ${HOTE_ORIGINAL}` : ''}`
+const cmdScanPii = () => `${PY} "${join(C.outils, 'scan_pii.py')}" --root "${C.projet}"${C.garder.filter(g => /@/.test(g)).map(g => ` --allow "${g}"`).join('')}${C.domainesFictifs.map(d => ` --allow-domain "${d}"`).join('')}`
+
+/* Cadre natif d'une appli Electron (hors DOM) : outils UIA sous Windows ; ailleurs description ou computer-use */
+const cadreNatif = () => WINDOWS
+  ? `Le cadre natif (barre de titre, menus Windows, boutons de fen\u00eatre d'une appli sans cadre) n'est pas dans le DOM : uia_dump.ps1 / window_shot.ps1 avec -ProcessId <PID du guide>.`
+  : `Le cadre natif n'est pas dans le DOM${C.plateforme === 'macos' ? " : sous macOS, les menus sont dans la barre de menus globale (en haut de l'\u00e9cran, pas dans la fen\u00eatre) et les boutons de fen\u00eatre (feux tricolores) sont dessin\u00e9s par AppKit" : ''}. D\u00e9cris-le dans notes.md, ou rel\u00e8ve-le avec computer-use s'il est disponible (charge le skill computer-use ; menu ouvert puis referm\u00e9 par \u00c9chap, jamais \u00ab Ouvrir r\u00e9cent \u00bb)${C.plateforme === 'macos' ? ' ; image de la fen\u00eatre enti\u00e8re : screencapture -x -o -l <id de fen\u00eatre> sur une fen\u00eatre du PID du guide (proc\u00e9dure : capture-bureau)' : ''}. Les permissions Accessibilit\u00e9 et Enregistrement de l'\u00e9cran sont accord\u00e9es par l'utilisateur lui-m\u00eame, jamais par toi. uia_dump.ps1 et window_shot.ps1 : Windows uniquement.`
 
 /* Consignes propres a chaque mode : outils de capture + regles de securite */
 const MODES = {
@@ -305,8 +366,8 @@ const MODES = {
     capture: () => `Navigateur R\u00c9EL de l'utilisateur via l'extension Claude in Chrome ; il s'y est connect\u00e9 lui-m\u00eame. Charge les outils en UNE fois : ToolSearch \u00ab select:mcp__claude-in-chrome__tabs_context_mcp,mcp__claude-in-chrome__list_connected_browsers,mcp__claude-in-chrome__select_browser,mcp__claude-in-chrome__navigate,mcp__claude-in-chrome__computer,mcp__claude-in-chrome__javascript_tool,mcp__claude-in-chrome__browser_batch,mcp__claude-in-chrome__find,mcp__claude-in-chrome__read_page,mcp__claude-in-chrome__tabs_close_mcp,mcp__claude-in-chrome__tabs_create_mcp \u00bb. Proc\u00e9dure exacte : capture-web, references/chrome-connecte.md.
 - Plusieurs navigateurs connect\u00e9s : list_connected_browsers puis celui de CET ordinateur o\u00f9 l'utilisateur est connect\u00e9 (select_browser). tabs_context_mcp {createIfEmpty:true} ; travaille dans l'UNIQUE onglet du groupe (le m\u00eame pour toutes les unit\u00e9s : le dictionnaire d'anonymisation du kit y vit), au premier plan, une page \u00e0 la fois. N'ouvre que des URL de l'original (${C.original}). Page de connexion ou \u00ab session expir\u00e9e \u00bb : arr\u00eate-toi et signale-le dans problems (l'utilisateur se reconnecte lui-m\u00eame).
 - RENDU : la fen\u00eatre ne se dessine qu'\u00e0 la demande. Apr\u00e8s chaque navigate : screenshot (scale 0.1), attendre 3\u20134 s, screenshot (scale 0.1), PUIS lire le DOM ; recommencer si l'\u00e9cran de chargement persiste. Naviguer avec navigate, jamais par history.pushState.
-- FILTRE de l'extension : r\u00e9sultats > ~1000 caract\u00e8res tronqu\u00e9s, contenu ressemblant \u00e0 cookies/requ\u00eates/base64 bloqu\u00e9. En mode par d\u00e9faut, le kit \u00e9chappe \u00ab \u00a7 \u00bb\u2192\u00ab (SECT) \u00bb, puis \u00ab ; \u00bb\u2192\u00ab \u00a7 \u00bb, \u00ab & \u00bb\u2192\u00ab (AMP) \u00bb, \u00ab ? \u00bb\u2192\u00ab (Q) \u00bb, et d\u00e9coupe en morceaux \u2264 900 caract\u00e8res (window.__D) : r\u00e9cup\u00e8re-les par paquets (window.__D.slice(0,20), puis (20,40)\u2026), redemande en plus petit tout morceau \u00ab [BLOCKED\u2026] \u00bb, \u00e9cris les morceaux tels quels dans un fichier .esc.txt puis d\u00e9code-le avec la commande py de chrome-connecte.md \u00a77 (ordre d'inversion : \u00ab \u00a7 \u00bb\u2192\u00ab ; \u00bb AVANT \u00ab (SECT) \u00bb\u2192\u00ab \u00a7 \u00bb), et contr\u00f4le la longueur.
-- KIT : ${join(C.outils, 'capture-kit.js')} \u2014 passe tout son contenu \u00e0 javascript_tool une fois par onglet, puis __config({ keep: [...], owner: '...' }) avec ce qu'on garde (${garderTxt()}) ; apr\u00e8s chaque navigation ou rechargement : r\u00e9injection courte (capture-web \u00a73), le fichier complet si elle r\u00e9pond \u00ab kit absent \u00bb. N'appelle __forget() qu'\u00e0 la toute fin de la capture compl\u00e8te. Pr\u00e9f\u00e8re browser_batch pour encha\u00eener plusieurs actions.`,
+- FILTRE de l'extension : r\u00e9sultats > ~1000 caract\u00e8res tronqu\u00e9s, contenu ressemblant \u00e0 cookies/requ\u00eates/base64 bloqu\u00e9. En mode par d\u00e9faut, le kit \u00e9chappe \u00ab \u00a7 \u00bb\u2192\u00ab (SECT) \u00bb, puis \u00ab ; \u00bb\u2192\u00ab \u00a7 \u00bb, \u00ab & \u00bb\u2192\u00ab (AMP) \u00bb, \u00ab ? \u00bb\u2192\u00ab (Q) \u00bb, et d\u00e9coupe en morceaux \u2264 900 caract\u00e8res (window.__D) : r\u00e9cup\u00e8re-les par paquets (window.__D.slice(0,20), puis (20,40)\u2026). Morceau \u00ab [BLOCKED\u2026] \u00bb : ne le red\u00e9coupe pas tout de suite ; relis d'abord ce morceau (cookie, session, jeton, \u00ab = \u00bb, base64), masque la valeur (__mask ou __addMap), et seulement ensuite redemande-le ; une valeur secr\u00e8te ou de session n'est jamais captur\u00e9e (le noter dans notes.md). \u00c9cris les morceaux tels quels dans un fichier .esc.txt puis d\u00e9code-le avec la commande Python de chrome-connecte.md \u00a77 (interpr\u00e9teur : ${PY} ; ordre d'inversion : \u00ab \u00a7 \u00bb\u2192\u00ab ; \u00bb AVANT \u00ab (SECT) \u00bb\u2192\u00ab \u00a7 \u00bb), et contr\u00f4le la longueur.
+- KIT : ${join(C.outils, 'capture-kit.js')} \u2014 passe tout son contenu \u00e0 javascript_tool une fois par onglet (Read avec allow_large: true, ou par tranches de 400 lignes jusqu'\u00e0 la derni\u00e8re, sans les num\u00e9ros de ligne ; r\u00e9ponse attendue exactement \u00ab kit ok \u00bb), puis __config({ keep: [...], owner: '...' }) avec ce qu'on garde (${garderTxt()}) ; apr\u00e8s chaque navigation ou rechargement : r\u00e9injection courte (capture-web \u00a73), le fichier complet si elle r\u00e9pond \u00ab kit absent \u00bb. N'appelle __forget() qu'\u00e0 la toute fin de la capture compl\u00e8te. Pr\u00e9f\u00e8re browser_batch pour encha\u00eener plusieurs actions.`,
     securite: () => `Compte R\u00c9EL de l'utilisateur : LECTURE SEULE STRICTE.
 - Autoris\u00e9 : naviguer dans l'appli ; cliquer onglets, entr\u00e9es de navigation, filtres d'affichage, accord\u00e9ons, pagination ; ouvrir un menu, une modale, un tiroir ou un formulaire de cr\u00e9ation SANS le remplir puis le fermer (\u00c9chap, Annuler, croix) ; ouvrir un d\u00e9tail en lecture ; survoler pour une infobulle.
 - INTERDIT : tout ce qui enregistre, cr\u00e9e, modifie, supprime, duplique, envoie, publie, invite, connecte/d\u00e9connecte, active/d\u00e9sactive (interrupteurs, cases), importe/exporte, t\u00e9l\u00e9charge, paie, change d'abonnement ou d'organisation, r\u00e9v\u00e8le ou r\u00e9g\u00e9n\u00e8re une cl\u00e9 ; taper dans un champ ; glisser-d\u00e9poser ; tout ce qui ouvre une bo\u00eete de dialogue du navigateur. Une alerte \u00ab quitter la page ? \u00bb : fermer l'onglet via tabs_close_mcp puis tabs_context_mcp {createIfEmpty:true}.
@@ -315,15 +376,15 @@ const MODES = {
   'web-public': {
     skill: 'capture-web',
     capture: () => `Site PUBLIC, profil VIERGE (aucun compte). Deux moyens, compl\u00e9mentaires :
-(a) Chrome/Edge headless lanc\u00e9 par l'agent principal sur le port ${C.cdpPort} (profil temporaire), \u00e0 privil\u00e9gier car il \u00e9crit images et dumps sur disque : py "${join(C.outils, 'cdp_eval.py')}" --port ${C.cdpPort} list | nav --url <URL> --wait 3 | eval --file "${join(C.outils, 'capture-kit.js')}" --expr "__config({raw:true}); <appel du kit>" --out <fichier> | shot --out <png> [--full] | hover --selector <CSS> --out <png> (survol r\u00e9el : :hover CSS et infobulles). Le mode raw est indispensable avec cdp_eval.py : sans lui, __dump renvoie seulement le nombre de morceaux. Un seul onglet (--target facultatif). Petit \u00e9cran : la fen\u00eatre headless ne descend pas sous ~500 px, donc nav --viewport 375x812 puis shot/eval --viewport 375x812. Ne lance ni ne ferme toi-m\u00eame ce navigateur. D\u00e9tail : capture-web, references/sites-publics.md.
+(a) Chrome/Edge headless lanc\u00e9 par l'agent principal (headless.py, profil temporaire) sur le port ${C.cdpPort}, \u00e0 privil\u00e9gier car il \u00e9crit images et dumps sur disque : ${PY} "${join(C.outils, 'cdp_eval.py')}" --port ${C.cdpPort} list | nav --url <URL> --wait 3 | eval --file "${join(C.outils, 'capture-kit.js')}" --expr "__config({raw:true}); <appel du kit>" --out <fichier> | shot --out <png> [--full] | hover --selector <CSS> --out <png> (survol r\u00e9el : :hover CSS et infobulles). Le mode raw est indispensable avec cdp_eval.py : sans lui, __dump renvoie seulement le nombre de morceaux. Un seul onglet (--target facultatif). Petit \u00e9cran : la fen\u00eatre headless ne descend pas sous ~500 px, donc nav --viewport 375x812 puis shot/eval --viewport 375x812. Ne lance ni ne ferme toi-m\u00eame ce navigateur. D\u00e9tail : capture-web, references/sites-publics.md.
 (b) Navigateur int\u00e9gr\u00e9, dans TON onglet (outils mcp__Claude_Browser__* charg\u00e9s en une fois via ToolSearch, tabId partout, onglet ferm\u00e9 \u00e0 la fin) : pour explorer et voir survols et infobulles (computer hover) ; kit en mode par d\u00e9faut (morceaux, capture-web \u00a73). Ses captures d'\u00e9cran ne sont pas enregistr\u00e9es sur disque : les images du dossier viennent de (a).
 Kit : ${join(C.outils, 'capture-kit.js')} (voir capture-web) ; cdp_eval.py le r\u00e9injecte \u00e0 chaque appel. Pas de crawl : seulement les pages de l'unit\u00e9, une \u00e0 la fois. Images d'un autre domaine absentes en headless (naturalWidth 0) : ne pas en conclure qu'elles sont cass\u00e9es dans l'original.`,
     securite: () => `Ne te connecte \u00e0 rien, ne cr\u00e9e aucun compte, ne soumets aucun formulaire, n'accepte aucune condition ; bandeau de cookies : refuser le non-essentiel. Aucun contournement (CAPTCHA, anti-bot, paywall, limites de d\u00e9bit) : une page bloqu\u00e9e est not\u00e9e \u00ab not-accessible \u00bb et on passe. Ne pas quitter le domaine de l'original.`,
   },
   'electron': {
     skill: 'capture-bureau',
-    capture: () => `Logiciel Electron / WebView2 lanc\u00e9 par l'agent principal avec --remote-debugging-port=${C.cdpPort} et un dossier de donn\u00e9es TEMPORAIRE (ne le relance pas, ne le ferme pas ; son PID et le handle de sa fen\u00eatre sont not\u00e9s dans le guide). Outil : py "${join(C.outils, 'cdp_eval.py')}" --port ${C.cdpPort} list (choisir la fen\u00eatre principale : type page, par un morceau de titre ou d'URL), puis eval --target <cible> --file "${join(C.outils, 'capture-kit.js')}" --expr "__config({raw:true}); <appel du kit>" --out <fichier> pour les dumps (mode raw indispensable : sans lui, __dump renvoie seulement le nombre de morceaux), shot --target <cible> --out <png> pour les images, nav si l'appli a des routes internes. Rel\u00e8ve __styles, __icons et __rects de l'\u00e9tat INITIAL avant toute interaction (les styles calcul\u00e9s gardent l'\u00e9tat d'un panneau ouvert puis referm\u00e9). __guessNames : lis le r\u00e9sultat dans la console, ne l'\u00e9cris jamais sur disque (ce sont de vrais noms). Le cadre natif (barre de titre, menus Windows, boutons de fen\u00eatre d'une appli sans cadre) n'est pas dans le DOM : uia_dump.ps1 / window_shot.ps1 avec -ProcessId <PID du guide>. Voir capture-bureau, references/electron.md.`,
-    securite: () => `LECTURE SEULE : ne rien enregistrer, cr\u00e9er, modifier, supprimer ni synchroniser ; ne changer aucun r\u00e9glage ; ne se connecter \u00e0 aucun compte ; n'ouvrir aucun fichier personnel de l'utilisateur ; fermer menus et bo\u00eetes de dialogue par \u00c9chap/Annuler, jamais \u00ab Enregistrer \u00bb. Ne fermer aucun processus.`,
+    capture: () => `Logiciel ${WINDOWS ? 'Electron / WebView2' : 'Electron / CEF / NW.js'} lanc\u00e9 par l'agent principal avec --remote-debugging-port=${C.cdpPort} et un dossier de donn\u00e9es TEMPORAIRE (ne le relance pas, ne le ferme pas ; son PID${WINDOWS ? ' et le handle de sa fen\u00eatre sont not\u00e9s' : ' est not\u00e9'} dans le guide). Outil : ${PY} "${join(C.outils, 'cdp_eval.py')}" --port ${C.cdpPort} list (choisir la fen\u00eatre principale : type page, par un morceau de titre ou d'URL), puis eval --target <cible> --file "${join(C.outils, 'capture-kit.js')}" --expr "__config({raw:true}); <appel du kit>" --out <fichier> pour les dumps (mode raw indispensable : sans lui, __dump renvoie seulement le nombre de morceaux), shot --target <cible> --out <png> pour les images, nav si l'appli a des routes internes. Rel\u00e8ve __styles, __icons et __rects de l'\u00e9tat INITIAL avant toute interaction (les styles calcul\u00e9s gardent l'\u00e9tat d'un panneau ouvert puis referm\u00e9). __guessNames : lis le r\u00e9sultat dans la console, ne l'\u00e9cris jamais sur disque (ce sont de vrais noms). ${cadreNatif()} Voir capture-bureau, references/electron.md.`,
+    securite: () => `LECTURE SEULE : ne rien enregistrer, cr\u00e9er, modifier, supprimer ni synchroniser ; ne changer aucun r\u00e9glage ; ne se connecter \u00e0 aucun compte ; n'ouvrir aucun fichier personnel de l'utilisateur ; fermer menus et bo\u00eetes de dialogue par \u00c9chap/Annuler, jamais \u00ab Enregistrer \u00bb. Ne fermer aucun processus${WINDOWS ? '' : ' (un installeur de mise \u00e0 jour en cours, comme ShipIt de Squirrel.Mac, se signale dans problems et ne s\'arr\u00eate jamais)'}.`,
   },
   'natif': {
     skill: 'capture-bureau',
@@ -577,7 +638,7 @@ if (!C.fondation.faite) {
   if (C.fondation.arreterApres) {
     log('Fondation termin\u00e9e : la faire valider par l\'utilisateur, puis relancer avec fondation.faite = true.')
     return { etape: 'fondation', fondation: resultatFondation,
-      suite: 'Montrer la page de r\u00e9f\u00e9rence \u00e0 l\'utilisateur ; une fois valid\u00e9e, relancer ce script avec config.fondation.faite = true et config.pageReference renseign\u00e9.' }
+      suite: 'Montrer la page de r\u00e9f\u00e9rence \u00e0 l\'utilisateur ; une fois valid\u00e9e, relancer ce script avec config.fondation.faite = true, config.pageReference renseign\u00e9 et config.fondation.resultat = ce champ fondation (ses demandes restantes iront \u00e0 l\'agent Coque).' }
   }
   if (!C.pageReference) C.pageReference = (C.fondation.unite.routes || [])[0] || ''
 }
@@ -631,8 +692,10 @@ log(`${nbCompletes} unit\u00e9(s) sur ${resultats.length} construite(s) et v\u00
 const toutesPages = resultats.flatMap(r => (r.build && r.build.pages) || []).map(p => p.route)
 const site = await agent(siteCheckPrompt(toutesPages), { label: 'controle-final', phase: 'Controle final', schema: VERIFY_SCHEMA }).catch(() => null)
 
-const collecter = (cle) => (resultatFondation && resultatFondation.ok
-  ? [resultatFondation.build, resultatFondation.v1, resultatFondation.v2].filter(Boolean).flatMap(x => x[cle] || []).map(s => `[fondation] ${s}`)
+// Fondation de ce lancement, ou d'un lancement precedent (config.fondation.resultat apres arreterApres)
+const F = resultatFondation || (C.fondation.faite && estObjet(C.fondation.resultat) ? C.fondation.resultat : null)
+const collecter = (cle) => (F && F.ok
+  ? [F.build, F.v1, F.v2].filter(Boolean).flatMap(x => x[cle] || []).map(s => `[fondation] ${s}`)
   : []).concat(resultats.flatMap(r =>
   [r.build, r.v1, r.v2].filter(Boolean).flatMap(x => x[cle] || []).map(s => `[${r.unit}] ${s}`)))
 const shellIssues = collecter('shellIssues').concat(site ? (site.shellIssues || []).map(s => '[site] ' + s) : [])

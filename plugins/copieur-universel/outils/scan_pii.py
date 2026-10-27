@@ -4,8 +4,9 @@
 scan_pii.py — recherche de données personnelles et de secrets dans un clone (ou tout dossier).
 Plugin copieur-universel, skill verifier-copie. Python 3.8+ STANDARD (aucune dépendance). Lecture seule.
 
-  py scan_pii.py --root <dossier> [--allow "titulaire@domaine.fr"] [--allow-domain "exemple.*"]
-                 [--deny "Nom Réel"] [--deny-file noms.txt] [--out rapport.json]
+  python3 scan_pii.py --root <dossier> [--allow "titulaire@domaine.fr"] [--allow-domain "exemple.*"]
+                      [--deny "Nom Réel"] [--deny-file noms.txt] [--out rapport.json]
+  (Windows : py au lieu de python3 ; motifs comme "exemple.*" toujours entre guillemets, zsh les développerait)
 
 Détecte :
   - emails (y compris écrits &#64; / %40 / \\u0040, et encodés en URL : mailto%3A…, %3C…%3E) ;
@@ -18,7 +19,12 @@ Détecte :
     SendGrid, Mailgun, Mailchimp, Twilio, npm, Shopify, Square, DSN Sentry, clés privées PEM, JWT,
     identifiants dans une URL (https://user:pass@…), en-têtes Bearer, affectations « api_key = '…' » ;
   - chemins locaux qui révèlent un nom de session : C:\\Users\\<nom>, file:///Users/<nom>/, /Users/<nom>/
-    (fréquents dans les dumps d'une appli Electron : vscode-file://…/c:/Users/<nom>/…) ;
+    (fréquents dans les dumps d'une appli Electron : vscode-file://…/c:/Users/<nom>/… sous Windows,
+    vscode-file://vscode-app/Users/<nom>/… sous macOS). Confiance haute : file://, schéma non web
+    (vscode-file://, app://…), nom de la session courante, ou nom suivi d'un dossier personnel (Desktop,
+    Documents, Downloads, Library, Pictures, Movies, Music, Applications, Public) ou caché (.vscode…) ; ces
+    formes sont signalées même dans href=, src=, path:, url:… Un /Users/<x>/ ambigu dans le texte reste en
+    confiance moyenne ; dans une URL web (href="/Users/Edit/5", https://…/users/42) c'est une route, ignorée ;
   - adresses IPv4 publiques (option --ip) ;
   - valeurs interdites que vous fournissez (--deny / --deny-file : vrais noms relevés pendant la capture…),
     sans tenir compte de la casse ni des accents.
@@ -45,7 +51,7 @@ import sys
 import time
 import unicodedata
 
-VERSION = '1.1'
+VERSION = '1.2'
 DEFAULT_EXCLUDED_DIRS = {'.git', '.hg', '.svn', 'node_modules', '__pycache__', '.venv', 'venv'}
 BINARY_EXT = {
     'png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'ico', 'bmp', 'tif', 'tiff', 'heic', 'psd',
@@ -112,13 +118,19 @@ FR_RX = re.compile(r'(?<![\w.,+/=#&%-])0[1-9](' + SEPC + r'?)\d{2}(?:\1\d{2}){3}
 NANP_RX = re.compile(r'(?<![\w.+/=#-])(?:\(\d{3}\)' + SP + r'?|\d{3}[\-.])\d{3}[\-.]\d{4}(?![\w])(?![.,]\d)')
 IBAN_RX = re.compile(r'(?<![A-Za-z0-9])([A-Z]{2}\d{2}(?:' + SP + r'?[A-Z0-9]{4}){2,7}(?:' + SP + r'?[A-Z0-9]{1,3})?)(?![A-Za-z0-9])')
 CARD_RX = re.compile(r'(?<![\w.,+\-/=#])(\d(?:[ \u00a0\-]?\d){12,18})(?![\w])(?![.,]\d)')
-# Chemins locaux qui contiennent un nom de session (Electron : vscode-file://.../c:/Users/<nom>/..., messages
-# d'erreur) : C:\Users\<nom>, file:///Users/<nom>/, /Users/<nom>/ (macOS), file:///home/<nom>/ (Linux).
+# Chemins locaux qui contiennent un nom de session (Electron : vscode-file://.../c:/Users/<nom>/... sous Windows,
+# vscode-file://vscode-app/Users/<nom>/... sous macOS, messages d'erreur) : C:\Users\<nom>, file:///Users/<nom>/,
+# /Users/<nom>/ (macOS), file:///home/<nom>/ (Linux).
 UPATH_RX = re.compile(r'(?i)(?<![\w])([a-z]:(?:\\{1,2}|/)+(?:users|utilisateurs|documents and settings)(?:\\{1,2}|/)+)'
                       r'([^\\/\s"\'<>|:*?%$]{1,64})')
-UPATH_NIX_RX = re.compile(r'((?:file://)?/Users/|file:///home/)([^/\s"\'<>%$]{1,64})(?=/)')
-UPATH_KEEP = {'public', 'default', 'default user', 'all users', 'shared', 'utilisateur', '<utilisateur>', 'username',
-              '<username>', 'user', '<user>', 'nom', '<nom>', 'xxx', '...', 'moi', 'vous', 'you', 'me'}
+# groupe 3 : segment qui suit le nom (absent si le chemin s'arrête au nom, ex. action="/Users/jdupont")
+UPATH_NIX_RX = re.compile(r'(file:///home/|/Users/)([^/\s"\'<>%$]{1,64})(?=(/[^/\s"\'<>?#]*)|[\s"\'<>),;\]`]|$)')
+# schéma + hôte collés devant /Users/ (vscode-file://vscode-app, file://, app://.) : cherché en arrière du constat
+UPATH_SCHEME_RX = re.compile(r'([A-Za-z][A-Za-z0-9+.\-]{0,30})://[^/\s"\'<>]{0,253}\Z')
+WEB_SCHEMES = {'http', 'https', 'ws', 'wss', 'ftp'}
+HOME_DIRS = {'Desktop', 'Documents', 'Downloads', 'Library', 'Pictures', 'Movies', 'Music', 'Applications', 'Public'}
+UPATH_KEEP = {'public', 'default', 'default user', 'all users', 'shared', 'guest', 'utilisateur', '<utilisateur>',
+              'username', '<username>', 'user', '<user>', 'nom', '<nom>', 'xxx', '...', 'moi', 'vous', 'you', 'me'}
 IPV4_RX = re.compile(r'(?<![\w.])((?:25[0-5]|2[0-4]\d|1?\d?\d)(?:\.(?:25[0-5]|2[0-4]\d|1?\d?\d)){3})(?![\w.])')
 SVG_DATA_RX = re.compile(r'\b(?:d|points|viewBox|transform|path|values|keyTimes|keySplines|stroke-dasharray)\s*=\s*'
                          r'("[^"]*"|\'[^\']*\')', re.I)
@@ -197,6 +209,20 @@ def die(msg, code=2):
 
 def fold(s):
     return ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn').casefold()
+
+
+def session_names():
+    """Noms de la session courante (en minuscules) : un /Users/<ce nom>/ est toujours signalé, même dans un href."""
+    names = [os.environ.get(k) for k in ('USER', 'LOGNAME', 'USERNAME')]
+    try:
+        import getpass
+        names.append(getpass.getuser())
+    except Exception:
+        pass
+    home = os.path.expanduser('~')
+    if home and home != '~':
+        names.append(os.path.basename(home.rstrip('/\\')))
+    return {n.strip().lower() for n in names if n and len(n.strip()) >= 2 and n.strip().lower() not in UPATH_KEEP}
 
 
 def luhn_ok(d):
@@ -367,6 +393,7 @@ class Scanner:
         if a.deny_file:
             for line in self._read_list(a.deny_file):
                 self._add_deny(line)
+        self.session = session_names()
         self.findings = []
         self.allowed = {}
         self.skipped = []
@@ -586,20 +613,45 @@ class Scanner:
 
         # 6. chemins locaux qui révèlent un nom de session (C:\Users\<nom>, /Users/<nom>/)
         if re.search(r'(?i)users|utilisateurs|home/', text):
-            for rx, conf in ((UPATH_RX, 'haute'), (UPATH_NIX_RX, 'moyenne')):
-                for m in rx.finditer(text):
-                    nom = m.group(2).strip()
-                    if not nom or nom.lower() in UPATH_KEEP or nom.startswith(('$', '%', '<', '{')):
-                        continue
-                    if rx is UPATH_NIX_RX and not m.group(1).startswith('file:'):
-                        before = text[max(0, m.start() - 1):m.start()]
-                        if before and before not in ' "\'(=`\t\n>;,':
-                            continue     # /Users/Edit/5 au milieu d'une URL : pas un chemin local
-                        if re.search(r'(?i)(?:href|src|action|to|path|url|route)\s*[:=]\s*["\']?$',
-                                     text[max(0, m.start() - 12):m.start()]):
-                            continue     # href="/Users/Edit/5" : route d'une appli web
-                    cands.append((m.start(), m.end(), 'chemin', 'chemin-utilisateur', m.group(0), conf,
-                                  'nom de session « ' + nom + ' » : le remplacer (utilisateur, chemin relatif)'))
+            def keep(nom):
+                return not nom or nom.lower() in UPATH_KEEP or nom.startswith(('$', '%', '<', '{'))
+
+            def add(s, e, val, nom, conf, why=''):
+                cands.append((s, e, 'chemin', 'chemin-utilisateur', val, conf,
+                              'nom de session « ' + nom + ' »' + (' (' + why + ')' if why else '')
+                              + ' : le remplacer (utilisateur, chemin relatif)'))
+            for m in UPATH_RX.finditer(text):
+                if not keep(m.group(2).strip()):
+                    add(m.start(), m.end(), m.group(0), m.group(2).strip(), 'haute')
+            for m in UPATH_NIX_RX.finditer(text):
+                nom, s = m.group(2).strip(), m.start()
+                if keep(nom):
+                    continue
+                nxt = (m.group(3) or '/')[1:]
+                if m.group(1).startswith('file:'):
+                    scheme, s0 = 'file', s
+                else:
+                    k = text.rfind('://', max(0, s - 260), s)
+                    pm = UPATH_SCHEME_RX.search(text, max(0, k - 31), s) if k >= 0 else None
+                    scheme, s0 = (pm.group(1).lower(), pm.start()) if pm else ('', s)
+                val = text[s0:m.end()]
+                if scheme and scheme not in WEB_SCHEMES:
+                    add(s0, m.end(), val, nom, 'haute', 'URL ' + scheme + '://')
+                elif nom.lower() in self.session:
+                    add(s0, m.end(), val, nom, 'haute', 'session courante')
+                elif nom.isdigit():
+                    continue     # /Users/42/… : identifiant d'une route
+                elif nxt in HOME_DIRS or re.match(r'\.[A-Za-z]', nxt):
+                    add(s0, m.end(), val, nom, 'haute', 'suivi de ' + nxt)
+                elif m.group(3) is None or scheme:
+                    continue     # nom sans « / » après, ou https://hôte/Users/x/ : route d'une appli web
+                else:
+                    before = text[max(0, s - 1):s]
+                    if before and before not in ' "\'(=`\t\n>;,':
+                        continue     # /Users/Edit/5 au milieu d'une URL : pas un chemin local
+                    if re.search(r'(?i)(?:href|src|action|to|path|url|route)\s*[:=]\s*["\']?$', text[max(0, s - 12):s]):
+                        continue     # href="/Users/Edit/5" : route d'une appli web
+                    add(s0, m.end(), val, nom, 'moyenne')
 
         # 6b. IPv4 publiques (option)
         if self.a.ip:
@@ -792,8 +844,8 @@ def main(argv=None):
     p = argparse.ArgumentParser(
         prog='scan_pii.py',
         description='Recherche emails, téléphones, IBAN, cartes, clés API et jetons dans un dossier (copieur-universel).',
-        epilog='Exemple : py scan_pii.py --root "C:\\clones\\monappli" --allow "titulaire@sa-societe.fr" '
-               '--allow-domain "exemple.*" --out rapport-pii.json')
+        epilog='Exemple : python3 scan_pii.py --root "$CLONE" --allow "titulaire@sa-societe.fr" '
+               '--allow-domain "exemple.*" --out rapport-pii.json (Windows : py au lieu de python3)')
     p.add_argument('--root', required=True, help='dossier (ou fichier) à analyser')
     p.add_argument('--allow', action='append', metavar='VALEUR',
                    help='valeur autorisée exacte (email, téléphone, IBAN…), répétable')

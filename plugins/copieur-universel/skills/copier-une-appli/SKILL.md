@@ -1,6 +1,6 @@
 ---
 name: copier-une-appli
-description: "POINT D'ENTRÉE obligatoire dès que l'utilisateur veut copier, cloner, recréer, reproduire, refaire ou imiter une application existante en local : appli web (SaaS, tableau de bord, back-office, site derrière une connexion ou public) ou logiciel de bureau (Electron, WebView2, Windows natif WPF/WinForms/Win32, Qt…). À utiliser même si la demande est vague ou ne nomme pas ce skill : « copie l'appli X », « clone ce site », « recrée le dashboard de mon logiciel », « refais cette page », « refais l'écran principal de Notepad », « fais-moi la même appli », « reproduis cette page à l'identique », « je veux une réplique de… ». Il cadre la demande, choisit le bon playbook (web connecté, web public, Electron, natif, mobile non pris en charge), applique les règles (lecture seule, données fictives, aucun contournement) et orchestre reconnaissance, capture, construction, double vérification et livraison. EN: MANDATORY entry point whenever the user wants to copy, clone, recreate, replicate, rebuild or mimic an existing app locally — web apps (SaaS dashboards, logged-in or public sites) or desktop software (Electron, WebView2, native Windows) — e.g. clone this app, make a replica of this dashboard, rebuild this screen pixel-perfect, make me the same app. Use it even when the request is vague and does not name this skill."
+description: "POINT D'ENTRÉE obligatoire dès que l'utilisateur veut copier, cloner, recréer, reproduire, refaire ou imiter une application existante en local : appli web (SaaS, tableau de bord, back-office, site derrière une connexion ou public) ou logiciel de bureau (Electron sous Windows ou macOS, WebView2, Windows natif WPF/WinForms/Win32, Qt…). À utiliser même si la demande est vague ou ne nomme pas ce skill : « copie l'appli X », « clone ce site », « recrée le dashboard de mon logiciel », « refais cette page », « refais l'écran principal de Notepad », « fais-moi la même appli », « reproduis cette page à l'identique », « je veux une réplique de… ». Il cadre la demande, choisit le bon playbook (web connecté, web public, Electron, natif, mobile non pris en charge), applique les règles (lecture seule, données fictives, aucun contournement) et orchestre reconnaissance, capture, construction, double vérification et livraison. EN: MANDATORY entry point whenever the user wants to copy, clone, recreate, replicate, rebuild or mimic an existing app locally — web apps (SaaS dashboards, logged-in or public sites) or desktop software (Electron on Windows or macOS, WebView2, native Windows) — e.g. clone this app, make a replica of this dashboard, rebuild this screen pixel-perfect, make me the same app. Use it even when the request is vague and does not name this skill."
 ---
 
 # Copier une appli — point d'entrée
@@ -16,9 +16,12 @@ plus que la vitesse : une fondation validée avant de paralléliser, une capture
 unique par fichier commun, deux vérifications indépendantes. Sauter ces étapes produit des pages incohérentes
 qu'on passe ensuite des heures à réaligner.
 
-**Outils** : dossier `outils/` du plugin = `${CLAUDE_PLUGIN_ROOT}/outils/` ; si cette variable n'est pas
-remplacée, utiliser `<Base directory de ce skill>\..\..\outils\` (résoudre en chemin absolu avant de lancer
-une commande). Dans la suite, `OUTILS` désigne ce chemin absolu (cmd : `%OUTILS%`, bash : `$OUTILS`).
+**Outils** : dossier `outils/` du plugin = `OUTILS="${CLAUDE_PLUGIN_ROOT}/outils"` ; si cette variable n'est
+pas remplacée, utiliser `<Base directory de ce skill>/../../outils` (résoudre en chemin absolu avant de lancer
+une commande). Les commandes sont écrites pour l'outil Bash (bash ou zsh sous macOS, Git Bash sous Windows),
+chemins entre guillemets (`"$OUTILS"`, `"$CLONE"`) ; chaque appel Bash est un nouveau shell : y redéfinir
+`OUTILS`, ou écrire en entier les valeurs notées (PID, port, profil).
+Sous Windows, `py` remplace `python3` (lanceur Python de Windows).
 
 Fichiers de ce skill (relatifs à son Base directory) :
 - `references/regles.md` — règles de sécurité et de légalité, à lire avant toute capture ;
@@ -28,14 +31,14 @@ Fichiers de ce skill (relatifs à son Base directory) :
   contrôle final → demandes de coque).
 
 Skills du plugin (s'invoquent `/copieur-universel:<nom>` ou via l'outil Skill ; à défaut, lire
-`<Base directory de ce skill>\..\<nom>\SKILL.md`) :
+`<Base directory de ce skill>/../<nom>/SKILL.md`) :
 
 | Skill | Rôle |
 |---|---|
 | `copier-une-appli` | ce point d'entrée : cadrage, choix du playbook, règles, orchestration, livraison |
 | `reconnaissance-appli` | identifier le type d'appli, inventorier écrans/routes/états, découper en unités |
 | `capture-web` | capturer une appli web connectée (Claude in Chrome) ou publique (navigateur intégré, Chrome headless + `cdp_eval.py`) |
-| `capture-bureau` | capturer un logiciel : Electron/WebView2 (CDP), natif Windows (UI Automation + captures de fenêtre) |
+| `capture-bureau` | capturer un logiciel : Electron/WebView2/CEF (CDP, Windows et macOS), natif Windows (UI Automation + captures de fenêtre) |
 | `reconstruire-appli` | fondation (page de référence → coque partagée), gabarit de page, données fictives, conventions |
 | `verifier-copie` | double vérification (mesures, textes, interactions, confidentialité), vérificateur adverse, contrôle final |
 
@@ -44,7 +47,8 @@ Skills du plugin (s'invoquent `/copieur-universel:<nom>` ou via l'outil Skill ; 
 ## Le déroulé en un coup d'œil
 
 1. **Cadrage** — quoi copier, jusqu'où, avec quel compte, où ranger le clone ; annoncer durée et coût.
-2. **Choix du playbook** — web connecté / web public / Electron-WebView2 / natif / mobile (non pris en charge).
+2. **Choix du playbook** — plateforme, puis web connecté / web public / Electron-WebView2 / natif / mobile (non
+   pris en charge).
 3. **Reconnaissance** — type d'appli, inventaire des écrans et états, découpage en unités → `reconnaissance-appli`.
 4. **Fondation** — capturer et recréer UNE page de référence, la faire valider par deux passes de vérification,
    en extraire la coque partagée et les données fictives → `capture-*`, `reconstruire-appli`, `verifier-copie`.
@@ -66,7 +70,7 @@ Avant de toucher à quoi que ce soit, obtenir (en un seul message, avec des vale
 - **Quelle appli et quelle portée** : l'appli entière, une section, une page, un écran ? Une portée floue
   (« toute l'appli ») sur un gros logiciel peut représenter des dizaines d'écrans : proposer de commencer par
   l'écran principal, puis d'étendre.
-- **Où est l'original** : URL, ou logiciel installé (chemin de l'exe, nom du processus).
+- **Où est l'original** : URL, ou logiciel installé (chemin de l'exe ou du `.app`, nom du processus).
 - **Connexion** : l'appli demande-t-elle un compte ? Si oui, c'est **l'utilisateur** qui se connecte dans son
   propre navigateur ; l'agent ne saisit jamais d'identifiants. Le compte réel est exploré en lecture seule stricte.
 - **Données** : fictives par défaut pour toute donnée personnelle (clients, contacts, messages…). On peut garder
@@ -87,16 +91,27 @@ anonymisation, nombre d'agents). Une hypothèse fausse découverte après la cap
 
 ## Étape 2 — Choisir le playbook
 
-Si le type n'est pas évident, lancer d'abord la détection (`reconnaissance-appli`) :
-`powershell -NoProfile -ExecutionPolicy Bypass -File "<OUTILS>\detect_app.ps1" -Path "<dossier ou exe>"`
-(ou `-ProcessName <nom>`) → JSON avec le framework probable et les indices.
+**Plateforme d'abord** (`uname -s` : `Darwin` = macOS ; sous Windows, Git Bash répond `MINGW64_NT-…`). Le web et
+les logiciels Electron/CEF/NW.js se copient sous Windows comme sous macOS. Les outils natifs (`uia_dump.ps1`,
+`window_shot.ps1`, `detect_app.ps1`, `glyphes.html`) sont **Windows uniquement** : sous macOS, une appli native
+n'a pas d'outil dans le plugin (lignes « macOS » du tableau).
+
+Si le type n'est pas évident, lancer d'abord la détection (`reconnaissance-appli`), en lecture seule :
+- Windows : `powershell -NoProfile -ExecutionPolicy Bypass -File "$OUTILS/detect_app.ps1" -Path "<dossier ou exe>"`
+  (ou `-ProcessName <nom>`) → JSON avec le framework probable et les indices ;
+- macOS : `python3 "$OUTILS/detect_app_mac.py" --app "/Applications/<App>.app"` → JSON avec `framework`
+  (`electron`, `cef`, `nwjs`, `qt`, `flutter`, `java`, `tauri`, `catalyst`, `appkit`, `swiftui`, `ios`,
+  `chromium-browser`, `gecko`, `webkit-browser`, `inconnu`), `indices`,
+  `cdp` (`true` = capturable par le port de débogage), `binaire`, `bundleId`, `donnees`, `misesAJour`, `strategie`.
 
 | Situation | Capture | Reconstruction |
 |---|---|---|
 | **Appli web derrière une connexion** (compte de l'utilisateur) | `capture-web`, mode connecté : Claude in Chrome dans le Chrome de l'utilisateur, qui s'est connecté lui-même ; lecture seule stricte ; anonymisation avant chaque capture | pages HTML/CSS/JS statiques servies en local |
-| **Site ou appli web public** | `capture-web`, mode public : navigateur intégré (son propre onglet) ou Chrome/Edge headless sur profil temporaire + `cdp_eval.py` ; pas de connexion, pas de crawl massif | idem |
+| **Site ou appli web public** | `capture-web`, mode public : navigateur intégré (son propre onglet) ou Chrome/Edge headless sur profil temporaire (`headless.py`) + `cdp_eval.py` ; pas de connexion, pas de crawl massif | idem |
 | **Logiciel Electron**, WebView2 (dont Tauri sous Windows) | `capture-bureau`, mode CDP : relancer l'appli avec `--remote-debugging-port` (WebView2 : variable `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`) et un dossier de données temporaire si possible, puis `cdp_eval.py` + `capture-kit.js` | idem (l'interface est du web) + lanceur en fenêtre d'appli (`lancer-app.cmd`, Edge `--app`) |
-| **Logiciel Windows natif** (Win32, WPF, WinForms, UWP/WinUI, Qt, Java) | `capture-bureau`, mode natif : `uia_dump.ps1` (arbre UI Automation) + `window_shot.ps1` (captures de fenêtre) + exploration prudente des menus (computer-use si disponible) | recréation HTML/CSS imitant les contrôles natifs, ouverte en fenêtre d'appli via Edge `--app` |
+| **Logiciel Windows natif** (Win32, WPF, WinForms, UWP/WinUI, Qt, Java) — Windows uniquement | `capture-bureau`, mode natif : `uia_dump.ps1` (arbre UI Automation) + `window_shot.ps1` (captures de fenêtre) + exploration prudente des menus (computer-use si disponible) | recréation HTML/CSS imitant les contrôles natifs, ouverte en fenêtre d'appli via Edge `--app` |
+| **macOS : logiciel Electron, CEF ou NW.js** (`cdp: true`) | `capture-bureau`, mode CDP (mode `electron` du gabarit) : lancer le binaire lui-même, `"<App>.app/Contents/MacOS/<exe>" --remote-debugging-port=<port> --user-data-dir="<profil temporaire cu-…>" & echo $!` (PID à noter), mises à jour bloquées dans le profil avant ; jamais `open -a` (aucun PID, et il peut réutiliser l'instance de l'utilisateur) ; menus de la barre de menus globale décrits, ou lus par computer-use | idem + lanceur `lancer-app.command` |
+| **macOS : appli native** (AppKit, SwiftUI, Catalyst, Tauri/WKWebView, Qt, Java, Flutter : `cdp: false`) | aucun outil du plugin : images seulement — captures computer-use, ou `screencapture -x -o -l <id de fenêtre>` d'une fenêtre du PID qu'on a lancé ; permissions Accessibilité et Enregistrement de l'écran accordées par l'utilisateur lui-même, jamais par l'agent | recréation HTML/CSS d'après les images, **fidélité réduite annoncée** (aucune mesure garantie) ; orchestration à la main (le mode `natif` du gabarit est réservé à Windows) |
 | **Appli mobile native** (iOS/Android) | non pris en charge : pas d'outil pour piloter ou inspecter un téléphone | proposer la version web de l'appli si elle existe ; sinon une recréation à partir de captures d'écran fournies par l'utilisateur, en annonçant une fidélité réduite (aucune mesure, aucun texte exact garanti) |
 | **Contenu dessiné** (canvas, WebGL, jeux, éditeurs graphiques, vidéo) | partiel : le DOM ne contient rien d'exploitable | coque et panneaux recréés fidèlement, zone dessinée approximée à partir des images — le dire |
 
@@ -125,9 +140,10 @@ de `unites.json`) ; pour une seule page, `fondation.json` seul et `unites.json` 
 
 Logiciel de bureau : c'est l'agent principal qui le lance pour la capture, selon `capture-bureau` (profil ou
 dossier de données temporaire, mises à jour automatiques bloquées, port de débogage pour Electron), et qui
-note **son PID et le handle de sa fenêtre** dans le `notes.md` de la capture, puis dans le GUIDE du projet
-quand il l'écrit. Les agents visent ensuite ce PID (`-ProcessId`), jamais une instance ouverte par
-l'utilisateur, et lui seul sera fermé à la fin.
+note **son PID et le handle de sa fenêtre** (sous macOS : le PID donné par `& echo $!`, sans handle) dans le
+`notes.md` de la capture, puis dans le GUIDE du projet quand il l'écrit. Les agents visent ensuite ce PID
+(`-ProcessId` sous Windows ; `ps -p <PID>` et les fenêtres de ce PID sous macOS), jamais une instance ouverte
+par l'utilisateur, et lui seul sera fermé à la fin.
 
 ---
 
@@ -175,12 +191,13 @@ Selon la taille, faire cela soi-même, avec l'outil Agent, ou avec `assets/workf
   elle-même les pages de son unité.
 - **Contrôle final du site** : toutes les pages se chargent sans erreur console, liens internes valides,
   navigation cohérente, aucune donnée personnelle réelle ni secret :
-  - `py "%OUTILS%\check_links.py" --root "<CLONE>" --base http://localhost:<PORT> --original <hôte de l'original>`
+  - `python3 "$OUTILS/check_links.py" --root "<CLONE>" --base http://localhost:<PORT> --original <hôte de l'original>`
     (`--original` pour une appli web : toute référence à l'original est signalée ; un lien ou un script vers
     lui se corrige, une image ou une police publique peut rester) ;
-  - `py "%OUTILS%\scan_pii.py" --root "<CLONE>" --allow "<email du titulaire gardé>" --allow-domain "exemple.*"`
-    (code retour non nul = quelque chose a été trouvé : regarder le rapport, corriger ou ajouter à la liste blanche
-    seulement ce qui est fictif ou explicitement gardé).
+  - `python3 "$OUTILS/scan_pii.py" --root "<CLONE>" --allow "<email du titulaire gardé>" --allow-domain "exemple.*"`
+    (motif toujours entre guillemets : zsh refuse `exemple.*` nu ; code retour non nul = quelque chose a été
+    trouvé : regarder le rapport, corriger ou ajouter à la liste blanche seulement ce qui est fictif ou
+    explicitement gardé).
 - **Demandes de modification de la coque** : un seul agent trie les `shellIssues`/`sectionIssues` collectés,
   applique celles qui sont fondées, puis revérifie la page de référence et un échantillon de pages par section.
 
@@ -192,18 +209,26 @@ clés (`getBoundingClientRect`), mêmes textes caractère par caractère.
 ## Étape 7 — Livraison
 
 - **Servir le clone en local**, sur la boucle locale uniquement :
-  `py -m http.server <PORT> --bind 127.0.0.1 --directory "<CLONE>"` (en arrière-plan : Bash `run_in_background`,
-  ou une entrée `.claude/launch.json` + `preview_start` pour l'ouvrir dans le navigateur intégré). Pour un
-  logiciel, `lancer-app.cmd --serveur` fait la même chose.
-- **Logiciel de bureau** : fournir le lanceur `lancer-app.cmd` (skill `reconstruire-appli`) qui ouvre le clone
-  dans une fenêtre d'appli Edge à la bonne taille (réglages `CU_*` en tête du fichier, taille **extérieure** de
-  la fenêtre ; le tester avec `--verifier` avant de le livrer — depuis Git Bash :
-  `cmd //c "<CLONE>\lancer-app.cmd" --verifier`).
+  `python3 -m http.server <PORT> --bind 127.0.0.1 --directory "<CLONE>"` (en arrière-plan : Bash
+  `run_in_background`, ou une entrée `.claude/launch.json` + `preview_start` pour l'ouvrir dans le navigateur
+  intégré). Pour un logiciel, `lancer-app.cmd --serveur` (Windows) ou `lancer-app.command --serveur` (macOS)
+  fait la même chose.
+- **Logiciel de bureau** : fournir le lanceur du skill `reconstruire-appli`, qui ouvre le clone dans une fenêtre
+  d'appli à la bonne taille (réglages `CU_*` en tête du fichier, taille **extérieure** de la fenêtre) et le
+  tester avec `--verifier` avant de le livrer :
+  - Windows : `lancer-app.cmd` (Edge `--app`) ; depuis Git Bash : `cmd //c "<CLONE>\lancer-app.cmd" --verifier` ;
+  - macOS : `lancer-app.command` (Chrome `--app` sur un profil propre au clone, ouvert par `open -na`) ;
+    `"<CLONE>/lancer-app.command" --verifier`.
 - **Ranger ce qu'on a lancé** : le logiciel ou le Chrome headless ouverts pour la capture (par leur PID ou leur
-  profil notés — `headless.ps1 -Action fermer` pour le headless —, jamais une instance de l'utilisateur), puis
-  leurs profils temporaires ; un installeur de mise à jour lancé par l'appli n'est pas arrêté (on le signale) ;
-  à la fin d'une capture connectée, l'onglet piloté est laissé sur une page neutre. Le serveur local du clone
-  reste lancé si l'utilisateur veut le consulter tout de suite.
+  profil notés, jamais une instance de l'utilisateur), puis leurs profils temporaires. Headless :
+  `python3 "$OUTILS/headless.py" fermer --profil "<profil noté>" --port <port>` (Windows : `headless.ps1` reste
+  disponible, mêmes actions). Logiciel sous macOS : `kill <PID noté>` (SIGTERM, jamais `kill -9` sur tout un
+  arbre), contrôle avec `ps -axo pid,command | grep -F "<profil noté>" | grep -v -e grep -e ShipIt` (vide =
+  plus rien), puis suppression de ce seul profil
+  `cu-…` du dossier temporaire (procédure : `capture-bureau`). Un
+  installeur de mise à jour lancé par l'appli (sous macOS : `ShipIt`) n'est pas arrêté (on le signale) ; à la
+  fin d'une capture connectée, l'onglet piloté est laissé sur une page neutre. Le serveur local du clone reste
+  lancé si l'utilisateur veut le consulter tout de suite.
 - **Compte rendu** (dans la langue de l'utilisateur, honnête, sans enjoliver) :
   - ce qui a été recréé (liste des pages/écrans, URL locale, comment lancer) ;
   - ce qui est fidèle et vérifié (deux passes, mesures clés) ;
@@ -281,8 +306,12 @@ dans les notes et approximé, pas capturé.
   le profil temporaire **avant** le lancement, ne jamais tuer un installeur (`capture-bureau` §3 et §10).
 - Sous-menu « Récent » d'un logiciel : il montre les fichiers de l'utilisateur → ne pas l'ouvrir (l'outil
   refuse), le décrire.
-- Git Bash convertit les arguments qui commencent par `/` (`/app/x` → `C:/Program Files/Git/app/x`) → écrire
-  les routes sans `/` initial quand l'outil l'accepte, ou `MSYS_NO_PATHCONV=1` devant la commande.
+- macOS : `open -a "<App>"` ou `open -a "Google Chrome"` confie la demande à l'instance déjà ouverte de
+  l'utilisateur (ses sessions, ses documents) et ne donne aucun PID → lancer le binaire
+  `…/Contents/MacOS/<exe>` lui-même, sur un profil temporaire ; Chrome uniquement par `headless.py`.
+- Windows uniquement : Git Bash convertit les arguments qui commencent par `/` (`/app/x` →
+  `C:/Program Files/Git/app/x`) → écrire les routes sans `/` initial quand l'outil l'accepte, ou
+  `MSYS_NO_PATHCONV=1` devant la commande.
 
 ---
 
@@ -298,7 +327,7 @@ dans les notes et approximé, pas capturé.
   assets/tailwind-config.js     police et palette relevées (si l'original utilise Tailwind)
   assets/fake-data.js           données fictives déterministes (graine fixe)
   assets/sections/<s>.js|css    éléments communs d'une section (propriétaire unique)
-  lancer-app.cmd                (logiciel de bureau) ouverture en fenêtre d'appli
+  lancer-app.cmd | .command     (logiciel de bureau) ouverture en fenêtre d'appli (Windows | macOS)
 <TRAVAIL>/                      hors du clone, non livré
   GUIDE.md, inventaire.md, unites.json, fondation.json, reconnaissance/,
   capture/<unité>/<page>/ (notes.md, dom-*.html | uia-*.json, images), verif/ (mesures, rapports)

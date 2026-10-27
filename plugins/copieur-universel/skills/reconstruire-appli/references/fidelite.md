@@ -162,9 +162,14 @@ dimensions, aux mêmes valeurs.
 - Vidéos intégrées (YouTube, Vimeo, Wistia) : `iframe` avec `data-lazy-src` (chargée à l'ouverture de la modale
   ou du dépliant, déchargée à la fermeture, sinon le son continue) et `allow="autoplay; fullscreen"` **sans**
   l'attribut `allowfullscreen` (doublon qui produit un avertissement console).
-- **Logiciel de bureau** — couleur exacte d'un pixel : `py "%OUTILS%\png_diff.py" couleur <png> 5,5` ; recadrer
-  une icône dans une capture de fenêtre (Windows, PowerShell, sans dépendance ; coordonnées en px de l'image) —
-  regarder ensuite l'image recadrée : `scan_pii.py` ne lit pas les images, une donnée réelle n'y serait pas vue :
+- **Logiciel de bureau** — couleur exacte d'un pixel (tous systèmes) : `python3 "$OUTILS/png_diff.py" couleur
+  <png> 5,5` ; recadrer une icône dans une capture de fenêtre (coordonnées en px de l'image) — regarder ensuite
+  l'image recadrée : `scan_pii.py` ne lit pas les images, une donnée réelle n'y serait pas vue. macOS (`sips`,
+  fourni avec le système ; hauteur et largeur, puis décalage y et x) :
+  ```bash
+  sips -c 24 24 --cropOffset 40 12 "<TRAVAIL>/capture/principal/01-fenetre.png" --out "$CLONE/assets/img/ouvrir.png"
+  ```
+  Windows (PowerShell, sans dépendance) :
   ```powershell
   Add-Type -AssemblyName System.Drawing
   $src = [System.Drawing.Bitmap]::FromFile("<TRAVAIL>\capture\principal\01-fenetre.png")
@@ -173,7 +178,7 @@ dimensions, aux mêmes valeurs.
   $src.Dispose()
   ```
   Une capture prise à 125 % d'échelle contient des icônes 1,25 fois plus grandes : les afficher à leur taille
-  CSS (`width="16"` pour une image de 20 px).
+  CSS (`width="16"` pour une image de 20 px ; capture Retina d'un Mac, 2 fois : `width="16"` pour 32 px).
 
 ---
 
@@ -188,9 +193,11 @@ dimensions, aux mêmes valeurs.
   (`['1','U+202F','0','0','7']`). Un dump de l'ancien kit les avait remplacées par des espaces simples.
 - **Ponctuation** : apostrophe ’ ou ', guillemets « » ou " ", points de suspension … ou ..., tirets – ou - :
   recopier le caractère exact.
-- **Nombres** (`Shell.fmt`, `fmtMoney`, `fmtPct`) : fr-FR donne `1 007` (U+202F), `905 000 €` (U+202F +
-  U+00A0), `12,5 %` (U+00A0). Si l'original formate autrement (`$905 000`, `905K`, `1.2k`), composer la même
-  chaîne (`'$' + Shell.fmt(n)`) plutôt que d'imposer le format « correct ».
+- **Nombres** (`Shell.fmt`, `fmtMoney`, `fmtPct`) : fr-FR donne `1 007` (U+202F), `905 000,00 €` (U+202F +
+  U+00A0 : `fmtMoney` garde les deux décimales de la devise ; sans décimales, `Shell.fmtMoney(n, 'EUR',
+  { minimumFractionDigits: 0, maximumFractionDigits: 0 })` → `905 000 €`), `12,5 %` (U+00A0). Si l'original
+  formate autrement (`$905 000`, `905K`, `1.2k`), composer la même chaîne (`'$' + Shell.fmt(n)`) plutôt que
+  d'imposer le format « correct ».
 - **Dates** (`Shell.fmtDate`) : `court` 12/10/2026, `moyen` 12 oct. 2026, `long` 12 octobre 2026, `jour`
   lundi 12 octobre, `heure` 10:00, `complet` 12 oct. 2026, 10:00. La forme exacte dépend de la version
   d'ICU du navigateur (« , » ou « à ») : comparer à la capture et composer à la main si besoin. Fuseau :
@@ -229,33 +236,39 @@ dimensions, aux mêmes valeurs.
 - **Échelle d'affichage** : les rectangles de `uia-*.json` et les captures de fenêtre sont en pixels
   **physiques**. px CSS = px physiques ÷ (échelle/100). Échelle Windows :
   `(Get-ItemProperty 'HKCU:\Control Panel\Desktop\WindowMetrics').AppliedDPI` (96 = 100 %, 120 = 125 %,
-  144 = 150 %).
+  144 = 150 %). macOS : écran Retina = 2 (`devicePixelRatio` noté à la capture ; une image de `screencapture`
+  fait le double de la fenêtre en points), écran externe ordinaire = 1.
 - **Taille de la fenêtre du clone** : `CU_LARGEUR`/`CU_HAUTEUR` de `lancer-app.cmd` (= `--window-size` d'Edge)
   fixent la taille **extérieure**, bordures invisibles et barre de titre d'Edge comprises. Mesuré à 125 % :
   `1141×658` donne une zone de contenu de 1128×622 ; `1155×695` donne 1142×658, la taille de l'original
   (Bloc-notes). Règle : zone voulue + ~14 px en largeur et + ~37 px en hauteur, puis **vérifier**
   `innerWidth`/`innerHeight` (lancer avec `CU_NAV_EXTRA=--remote-debugging-port=9230`, puis
-  `cdp_eval.py --port 9230 eval --expr "[innerWidth, innerHeight]"`). Même règle pour une appli Electron sans
-  cadre : sa zone de contenu est toute sa fenêtre.
+  `python3 "$OUTILS/cdp_eval.py" --port 9230 eval --expr "[innerWidth, innerHeight]"`). Même règle pour une
+  appli Electron sans cadre : sa zone de contenu est toute sa fenêtre. macOS (`lancer-app.command`, Chrome) :
+  taille extérieure aussi, en points (= px CSS), barre de titre comprise et pas de cadre en largeur ; l'écart
+  en hauteur se mesure de la même façon, il n'est pas celui d'Edge.
 - **Barre de titre** : celle de Windows (fenêtre d'appli Edge) affiche `document.title` ; ne pas en redessiner
   une en HTML. Sa couleur suit `<meta name="theme-color" content="#202020">` (testé : barre sombre comme un
   original en thème sombre). Applis sans cadre (Electron avec barre de titre personnalisée : VS Code, Discord,
   Teams) et applis qui mettent leurs onglets dans la barre de titre (Bloc-notes, Terminal) : la partie
   intérieure se reproduit en HTML juste sous la barre d'Edge, **sans** redessiner Réduire/Agrandir/Fermer ;
-  la barre native d'Edge reste au-dessus (écart à signaler).
+  la barre native d'Edge reste au-dessus (écart à signaler). Sous macOS, la barre de titre et ses feux
+  tricolores sont dessinés par le système (fenêtre Chrome) : même règle, ne pas les redessiner.
 - **Mesurer le clone à l'échelle de la capture** : pour superposer une image de `window_shot.ps1` prise à 125 %,
-  rendre le clone au même facteur — Edge headless + `cdp_eval.py shot --viewport 1141x658@1.25` donne une image
-  1426×823 superposable, à comparer par `png_diff.py diff` (l'anticrénelage ClearType de l'original diffère
-  du lissage du navigateur : regarder les zones, pas seulement le pourcentage). Le volet du navigateur intégré,
-  plus étroit, réduit le viewport émulé : il ne convient pas à cette comparaison.
+  rendre le clone au même facteur — Chrome ou Edge headless (`headless.py lancer`) + `cdp_eval.py shot
+  --viewport 1141x658@1.25` donne une image 1426×823 superposable (capture Retina d'un Mac : `@2`), à comparer
+  par `png_diff.py diff` (l'anticrénelage ClearType de l'original diffère du lissage du navigateur : regarder
+  les zones, pas seulement le pourcentage). Le volet du navigateur intégré, plus étroit, réduit le viewport
+  émulé : il ne convient pas à cette comparaison.
 - **Contrôles** : HTML sémantique (`button`, `input`, `select`, `textarea`, `[role=menu]`, `[role=tree]`) stylé
   d'après les images : hauteurs, rayons, bordures et couleurs **mesurés** (§8 pour la couleur exacte d'un pixel).
 - **Menus** : barre de menus `<div role="menubar" data-menubar>` dont les titres sont des `[data-menu]`
   (+ `data-accel="f"`) et les éléments des `role="menuitem"` : un menu ouvert à la fois, Échap, clic extérieur,
   Alt+lettre, flèches, survol d'un titre voisin ; le cadre de focus n'apparaît qu'à l'ouverture au clavier
   (classes `clavier` / `is-focused`, comme Windows). Raccourcis affichés et branchés avec `Shell.keys` ;
-  Ctrl+W, Ctrl+N, Ctrl+T restent au navigateur, et Alt+F peut être pris par Edge dans une vraie fenêtre
-  (limites à vérifier et à signaler).
+  Ctrl+W, Ctrl+N, Ctrl+T restent au navigateur (sur Mac : Cmd+W, Cmd+N, Cmd+T, Cmd+Q), et Alt+F peut être
+  pris par Edge dans une vraie fenêtre (limites à vérifier et à signaler). Sur Mac, Alt = Option : la coque
+  lit la touche physique, Option+F ouvre donc le menu malgré le « ƒ » produit.
 - **Mode bureau** (`Shell.configure({ bureau: true })`) : pas de menu contextuel du navigateur hors champs
   (un menu contextuel maison reste possible : gérer `contextmenu` soi-même), pas de sélection hors champs
   (classe `.selectable` pour en autoriser), pas de glisser d'images.
@@ -263,9 +276,10 @@ dimensions, aux mêmes valeurs.
   les glyphes des applis natives : `<span class="glyph" aria-hidden="true">&#xE713;</span>` avec
   `.glyph { font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets"; font-size: 14.4px; line-height: 1; }`
   (barre d'outils du Bloc-notes : 18 px physiques à 125 % = 14,4 px CSS, pas 16 : mesurer).
-  **Identifier plutôt que deviner** : `OUTILS\glyphes.html` corrèle chaque zone de la capture avec les ~4 600
-  glyphes de la police (mode d'emploi en tête du fichier) ; le bon glyphe obtient 0,8 à 0,9 et figure parmi
-  les 3 premiers, à départager à l'œil avec ses voisins. Une icône absente de la police (« Tableau » et
+  **Identifier plutôt que deviner** : `OUTILS/glyphes.html` (Windows uniquement : la police doit être
+  installée) corrèle chaque zone de la capture avec les ~4 600 glyphes de la police (mode d'emploi en tête du
+  fichier) ; le bon glyphe obtient 0,8 à 0,9 et figure parmi les 3 premiers, à départager à l'œil avec ses
+  voisins. Une icône absente de la police (« Tableau » et
   « Effacer la mise en forme » du Bloc-notes) se recadre dans la capture (§8).
   Codes confirmés sur le Bloc-notes 11.2607 : E713 paramètres, E76C chevron droit, E711 fermer l'onglet,
   F8AA ajouter (nouvel onglet ; E710 et E948 sont des « plus » voisins), E972 chevron de liste déroulante
@@ -275,7 +289,9 @@ dimensions, aux mêmes valeurs.
   E8C6 couper, E7A7 annuler (undo), E7A6 rétablir, E72B précédent, E72A suivant, E70D/E70E chevrons bas/haut,
   E76B chevron gauche, E712 plus (…), E72C actualiser, E80F accueil, E946 info, E8A3 zoom avant,
   E8BB/E921/E922/E923 fermer/réduire/agrandir/restaurer (barre de titre). Hors Windows, ces polices n'existent
-  pas : prévoir un SVG si le clone doit tourner ailleurs.
+  pas : prévoir un SVG si le clone doit tourner ailleurs. Sur un Mac, l'identification des glyphes et la
+  vérification d'un clone de logiciel Windows (polices et mesures à ±2 px) ne peuvent pas réussir : les faire
+  sous Windows, ou utiliser des SVG recadrés ou dessinés et signaler l'écart de police.
 - **Electron / WebView2** : l'interface est du web → mêmes règles que les applis web (dump CDP, classes, SVG).
   Les polices et images embarquées dans l'appli sont des fichiers de l'éditeur : équivalent libre ou police
   système, signalé.

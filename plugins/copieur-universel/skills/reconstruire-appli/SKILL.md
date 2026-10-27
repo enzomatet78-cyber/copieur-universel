@@ -1,6 +1,6 @@
 ---
 name: reconstruire-appli
-description: "Reconstruction fidèle, en local, d'une appli web ou d'un logiciel de bureau à partir de sa capture : fondation d'abord (page de référence validée deux fois, puis coque partagée et données fictives), une page par route ou par écran avec le gabarit, coque générique shell-base.js (icônes, menus, modales, onglets, infobulles, formats fr-FR), Tailwind et palette, polices, graphiques SVG, pièges CSS, lanceur Edge --app pour les logiciels. À utiliser dès qu'il faut écrire ou corriger le HTML/CSS/JS d'un clone ou d'une réplique — phase de construction de copier-une-appli, ou demande directe sur une capture existante — même si la demande ne dit pas « reconstruire » : « recrée cette page à partir de la capture », « refais cet écran à l'identique », « construis le clone », « reproduis ce tableau de bord », « corrige la page du clone », « copie pixel près ». Si rien n'est encore capturé (« copie l'appli X »), commencer par copier-une-appli. EN: Use whenever HTML/CSS/JS must be written or fixed to recreate, rebuild, replicate or clone a web page, dashboard or desktop screen locally from a capture — the build phase of copier-une-appli or a direct request on an existing capture: foundation first (reference page verified twice, then shared shell and fake data), page template, generic shell, fidelity rules (Tailwind, palette, fonts, icons, SVG charts), Edge --app launcher — even when the user only says 'rebuild this page' or 'pixel-perfect copy'. Nothing captured yet: start with copier-une-appli."
+description: "Reconstruction fidèle, en local, d'une appli web ou d'un logiciel de bureau à partir de sa capture : fondation d'abord (page de référence validée deux fois, puis coque partagée et données fictives), une page par route ou par écran avec le gabarit, coque générique shell-base.js (icônes, menus, modales, onglets, infobulles, formats fr-FR), Tailwind et palette, polices, graphiques SVG, pièges CSS, lanceur --app pour les logiciels (Edge sous Windows, Chrome sous macOS). À utiliser dès qu'il faut écrire ou corriger le HTML/CSS/JS d'un clone ou d'une réplique — phase de construction de copier-une-appli, ou demande directe sur une capture existante — même si la demande ne dit pas « reconstruire » : « recrée cette page à partir de la capture », « refais cet écran à l'identique », « construis le clone », « reproduis ce tableau de bord », « corrige la page du clone », « copie pixel près ». Si rien n'est encore capturé (« copie l'appli X »), commencer par copier-une-appli. EN: Use whenever HTML/CSS/JS must be written or fixed to recreate, rebuild, replicate or clone a web page, dashboard or desktop screen locally from a capture — the build phase of copier-une-appli or a direct request on an existing capture: foundation first (reference page verified twice, then shared shell and fake data), page template, generic shell, fidelity rules (Tailwind, palette, fonts, icons, SVG charts), --app launcher (Edge on Windows, Chrome on macOS) — even when the user only says 'rebuild this page' or 'pixel-perfect copy'. Nothing captured yet: start with copier-une-appli."
 ---
 
 # Reconstruire une appli — fondation, coque, pages
@@ -22,9 +22,12 @@ ce qui a fait la qualité n'est pas l'habileté de chaque page mais trois choix 
 3. **Une coque générique + une coque propre à l'appli** : les utilitaires (icônes, infobulles, menus…) ne
    changent pas d'une appli à l'autre ; la navigation, elle, s'écrit pour l'appli copiée, à partir de sa capture.
 
-**Outils** : dossier `outils/` du plugin = `${CLAUDE_PLUGIN_ROOT}/outils/` ; si cette variable n'est pas
-remplacée, utiliser `<Base directory de ce skill>\..\..\outils\` (résoudre en chemin absolu avant de lancer
+**Outils** : dossier `outils/` du plugin, `OUTILS="${CLAUDE_PLUGIN_ROOT}/outils"` ; si cette variable n'est pas
+remplacée, utiliser `"<Base directory de ce skill>/../../outils"` (résoudre en chemin absolu avant de lancer
 une commande). Dans la suite, `OUTILS` désigne ce chemin absolu et `SKILL` le Base directory de ce skill.
+Les commandes sont écrites pour l'outil Bash (bash/zsh sous macOS, Git Bash sous Windows), chemins entre
+guillemets ; chaque appel Bash est un nouveau shell : redéfinir `OUTILS`/`CLONE` ou écrire les chemins en clair.
+Sous Windows, `py` remplace `python3` (lanceur Python de Windows).
 
 | Fichier du skill | Rôle |
 |---|---|
@@ -36,10 +39,12 @@ une commande). Dans la suite, `OUTILS` désigne ce chemin absolu et `SKILL` le B
 | `assets/fake-data-template.js` | générateur de données fictives déterministes (`window.FAKE`) |
 | `assets/tailwind-config.js` | configuration Tailwind v3 (police, palette) avec la palette par défaut en rappel |
 | `assets/lancer-app.cmd` | lanceur Windows : démarre le serveur local si besoin et ouvre le clone en fenêtre d'appli (Edge `--app`) |
+| `assets/lancer-app.command` | lanceur macOS, mêmes réglages et options : serveur local si besoin, fenêtre d'appli Chrome (`open -na … --app`, profil dédié) |
 
 Outils partagés utiles ici (dans `OUTILS`) : `dom2page.py` (dump de capture → contenu de page),
-`verif.js` + `cdp_eval.py` + `headless.ps1` (se vérifier sans navigateur intégré), `png_diff.py` (comparer à
-l'image de capture, couleur d'un pixel), `glyphes.html` (identifier une icône Windows dans Segoe Fluent Icons),
+`verif.js` + `cdp_eval.py` + `headless.py` (se vérifier sans navigateur intégré ; Windows : `headless.ps1`
+reste disponible, mêmes actions), `png_diff.py` (comparer à l'image de capture, couleur d'un pixel),
+`glyphes.html` (identifier une icône Windows dans Segoe Fluent Icons — Windows uniquement),
 `check_links.py`, `scan_pii.py`.
 
 **Règles pendant la construction** (détail et justification : `copier-une-appli/references/regles.md`) :
@@ -66,7 +71,7 @@ l'image de capture, couleur d'un pixel), `glyphes.html` (identifier une icône W
 
 - **La capture de l'unité** (dossier de travail, hors du clone) — format défini par `capture-web` §6 :
   au niveau de l'unité `notes.md`, `styles.css` (`__styles`), `icones.txt` (`__icons`) ; par page
-  (`<unité>\<slug>\`) `notes.md` (route finale, titre exact, viewport, structure, états, liens, données,
+  (`<unité>/<slug>/`) `notes.md` (route finale, titre exact, viewport, structure, états, liens, données,
   mesures), `dom-<etat>.html`, images `01-haut.png…`, `graphique-<nom>.txt` (`__chart`). Logiciel
   (`capture-bureau` §8) : un dossier par écran (`fenetre-principale`, `dialogue-<nom>`…) avec `uia-*.json`
   (natif) ou `dom-*.html` (Electron) et les images de fenêtre ; le GUIDE fixe l'écran du clone
@@ -96,7 +101,7 @@ Arborescence (détail et cas particuliers : `references/conventions.md` §1–3)
   assets/tailwind-config.js      police + palette relevées
   assets/fake-data.js            données fictives déterministes
   assets/sections/<s>.js|css     éléments communs d'une section (un seul propriétaire)
-  lancer-app.cmd                 (bureau, facultatif pour le web) fenêtre d'appli Edge --app
+  lancer-app.cmd | .command      (bureau, facultatif pour le web) fenêtre d'appli : Edge --app (Windows), Chrome --app (macOS)
 ```
 
 Copier les gabarits (bash ; remplacer les chemins) :
@@ -106,7 +111,8 @@ mkdir -p "$CLONE/assets/sections" "$CLONE/app"
 cp "$SKILL/assets/shell-base.js" "$SKILL/assets/shell-base.css" "$CLONE/assets/"
 cp "$SKILL/assets/tailwind-config.js" "$CLONE/assets/"   # seulement si l'original utilise Tailwind
 cp "$SKILL/assets/fake-data-template.js" "$CLONE/assets/fake-data.js"
-cp "$SKILL/assets/lancer-app.cmd" "$CLONE/"          # logiciel de bureau
+cp "$SKILL/assets/lancer-app.cmd" "$CLONE/"          # logiciel de bureau, Windows
+cp "$SKILL/assets/lancer-app.command" "$CLONE/" && chmod +x "$CLONE/lancer-app.command"   # logiciel de bureau, macOS
 touch "$CLONE/assets/shell.js" "$CLONE/assets/shell.css"   # coque propre à l'appli, écrite pendant la fondation
 ```
 (PowerShell : `Copy-Item "$SKILL\assets\shell-base.js" "$CLONE\assets\"`, etc.)
@@ -119,7 +125,7 @@ simplifiés, y définir `.hidden { display: none }`, et `window.SHELL_CONFIG = {
 `top: 3px`…) a ramené les écarts de position de 2–9 px à ±1 px. Détails : `fidelite.md` §3 et §11.
 
 Servir le clone (boucle locale uniquement, port libre) :
-`py -m http.server 8770 --bind 127.0.0.1 --directory "<CLONE>"` — en arrière-plan (Bash `run_in_background`).
+`python3 -m http.server 8770 --bind 127.0.0.1 --directory "$CLONE"` — en arrière-plan (Bash `run_in_background`).
 Toujours ouvrir le clone par `http://localhost:<port>/…`, jamais en `file://` : les chemins absolus
 (`/assets/…`, `/app/…`) et le stockage local en dépendent.
 
@@ -164,10 +170,11 @@ Ce qui va où :
 3. **`<title>`** = `document.title` exact de l'original ; `body[data-nav]` = clé du GUIDE ; icône de l'onglet.
 4. **Recopier `dom-initial.html` dans `<main>`** : même structure, mêmes classes, textes mot pour mot (accents,
    espaces insécables, majuscules, fautes de l'original comprises). Conversions mécaniques
-   (`py "%OUTILS%\dom2page.py" dom-initial.html main.html`, détail : `conventions.md` §10) :
+   (`python3 "$OUTILS/dom2page.py" dom-initial.html main.html`, détail : `conventions.md` §10) :
    `<svg icon="lib:nom" …/>` → `<svg data-icon="lib:nom" …></svg>` ; échappements
    du kit (`§`, `(AMP)`, `(Q)`, `(SECT)`) déjà inversés — sinon les inverser ; commentaires du kit
-   (`<!--IFRAME …-->`, `<!--SVG complexe …-->`, `<!--CANVAS …-->`) remplacés par l'élément reconstruit.
+   (`<!--IFRAME …-->`, `<!--SVG complexe …-->`, `<!--CANVAS …-->`, `<!--OBJECT …-->`) remplacés par
+   l'élément reconstruit.
    Logiciel natif (pas de DOM) : structure et positions tirées de `uia-*.json`, aspect des images de fenêtre
    (`conventions.md` §10, `fidelite.md` §11).
 5. **Données** : chiffres agrégés et réglages du compte relevés tels quels ; toute donnée personnelle → `FAKE`
@@ -192,11 +199,14 @@ Ce qui va où :
     est attendu), comparaison avec les images (`computer` screenshot), `scrollHeight` de `#main` et positions
     clés (`getBoundingClientRect`) contre les mesures de `notes.md`, chaque état, 375 px sans défilement
     horizontal. Attendre `document.documentElement.dataset.shell === 'ready'` avant de mesurer. Navigateur
-    intégré absent ou plein (« Tab cap reached » : les onglets des autres agents ne se ferment pas) : Edge ou
-    Chrome **headless** sur profil temporaire (`headless.ps1 -Action lancer`), puis `cdp_eval.py nav --console`
-    (erreurs console), `eval --file verif.js`, `shot`, `hover`, et `png_diff.py diff` contre l'image de capture
-    (`verifier-copie/references/methode.md` §2 et §6) ; à la fin `headless.ps1 -Action fermer`. Jamais le Chrome
-    de l'utilisateur.
+    intégré absent ou plein (« Tab cap reached » : les onglets des autres agents ne se ferment pas) : Chrome
+    ou Edge **headless** sur profil temporaire (`python3 "$OUTILS/headless.py" lancer --viewport <L>x<H>` →
+    une ligne JSON : noter `port` et `profil` en clair), puis `cdp_eval.py --port <port> nav --console`
+    (erreurs console), `eval --file "$OUTILS/verif.js"`, `shot`, `hover`, et `png_diff.py diff` contre l'image
+    de capture (`verifier-copie/references/methode.md` §2 et §6) ; à la fin
+    `python3 "$OUTILS/headless.py" fermer --profil "<profil noté>" --port <port>`. Jamais le Chrome de
+    l'utilisateur : ni `open -a "Google Chrome"`, ni un navigateur lancé sans `--headless=new` et profil
+    temporaire (il s'ouvrirait avec ses sessions).
 11. **Rendre compte** : pages construites (route, fichier, statut), écarts connus, `shellIssues`,
     `sectionIssues` — précis (fichier, problème, changement proposé).
 
@@ -204,9 +214,10 @@ Ce qui va où :
 
 ## 5. La coque générique `shell-base.js`
 
-Copiée telle quelle dans chaque clone (testée dans Edge sur une page de démonstration : icônes, liaisons,
-formats, menus, modales, onglets, infobulles, stockage, mode bureau). Elle ne dessine rien : l'aspect vient
-toujours des classes recopiées de l'original ; elle apporte le comportement.
+Copiée telle quelle dans chaque clone (testée sur une page de démonstration dans Edge sous Windows et dans
+Chrome headless sous macOS : icônes, liaisons, formats, menus, modales, onglets, infobulles, stockage, mode
+bureau ; postérieure au clone iClosed, elle n'a pas encore servi à un clone complet). Elle ne dessine rien :
+l'aspect vient toujours des classes recopiées de l'original ; elle apporte le comportement.
 Tous ses comportements sont **délégués** au document : un contenu injecté après coup (tableau rendu en JS,
 modale, infobulle) fonctionne sans rien rappeler, et un observateur hydrate automatiquement ses icônes et liaisons.
 
@@ -229,7 +240,7 @@ modale, infobulle) fonctionne sans rien rappeler, et un observateur hydrate auto
 | `data-switch` + `data-on-class` / `data-off-class` | interrupteur visuel (`aria-checked`) |
 | `data-bind="user.fullName"` (`user.initial`, `user.initials`, `org.name`, `appName`…) | texte tiré de `Shell.CONFIG` |
 | `data-nav-key="clé"` + `data-active-class` / `data-inactive-class` | élément de navigation actif quand `body[data-nav]` = clé ; ses descendants qui portent aussi `data-active-class` / `data-inactive-class` (icône, libellé) suivent le même état |
-| `data-menubar` (+ `data-accel="f"` sur chaque titre `[data-menu]`, `role="menuitem"` dans les menus) | barre de menus de logiciel : Alt+lettre, flèches haut/bas/gauche/droite, Origine/Fin, Entrée ; au clavier, classes `clavier` (menu) et `is-focused` (élément) posées par script (réglables : `data-kbd-class`, `data-focus-class`) ; à la souris, aucune ; survol d'un autre titre pendant qu'un menu est ouvert = bascule |
+| `data-menubar` (+ `data-accel="f"` sur chaque titre `[data-menu]`, `role="menuitem"` dans les menus) | barre de menus de logiciel : Alt+lettre (Option+lettre sur Mac), flèches haut/bas/gauche/droite, Origine/Fin, Entrée ; au clavier, classes `clavier` (menu) et `is-focused` (élément) posées par script (réglables : `data-kbd-class`, `data-focus-class`) ; à la souris, aucune ; survol d'un autre titre pendant qu'un menu est ouvert = bascule |
 | `Shell.ready(fn)`, `Shell.hydrate(el)`, `Shell.setNav(clé)` | démarrage (`<html data-shell="ready">`), hydratation explicite, changement d'élément actif |
 | `Shell.menu`, `Shell.modal`, `Shell.tabs.select`, `Shell.toggle.set`, `Shell.switchTo`, `Shell.tip` | pilotage en JS ; évènements `shell:menu`, `shell:modal`, `shell:tab`, `shell:toggle`, `shell:switch`, `shell:ready` |
 | `Shell.keys({ 'ctrl+s': fn })`, `Shell.noTransition(el, fn)`, `Shell.copy(texte)`, `Shell.$`, `Shell.$$`, `Shell.on`, `Shell.show/hide/isHidden` | raccourcis, état initial sans animation, presse-papiers, utilitaires DOM |
@@ -287,28 +298,36 @@ Partir de `assets/fake-data-template.js` et adapter la section « À ADAPTER » 
 
 ## 8. Logiciels de bureau
 
-Le clone d'un logiciel est un site local ouvert dans une **fenêtre d'appli** (Edge `--app`) : pas de barre
-d'adresse ni d'onglets, la barre de titre Windows affiche `document.title`.
+Le clone d'un logiciel est un site local ouvert dans une **fenêtre d'appli** (Edge `--app` sous Windows,
+Chrome `--app` sous macOS) : pas de barre d'adresse ni d'onglets, la barre de titre du système affiche
+`document.title`.
 - **Écrans** : `ecrans/<ecran>/index.html` (`principal`, `preferences`, `a-propos`…) ; boîtes de dialogue
   modales de l'original → modales dans l'écran ; fenêtres indépendantes → écrans séparés ouverts par
   `window.open(url, nom, 'popup,width=…,height=…')`. Détails : `conventions.md` §3.
 - **Mode bureau** : `Shell.configure({ bureau: true })` → pas de menu contextuel du navigateur hors des champs,
   pas de sélection de texte hors des champs, pas de glisser d'images ; raccourcis par `Shell.keys`
-  (certains restent au navigateur : Ctrl+W, Ctrl+N, Ctrl+T).
+  (certains restent au navigateur : Ctrl+W, Ctrl+N, Ctrl+T ; sur Mac Cmd+W, Cmd+N, Cmd+T, Cmd+Q).
 - **Aspect Windows** : polices système (`"Segoe UI Variable Text", "Segoe UI"`), icônes **Segoe Fluent Icons**
-  (police installée sur Windows 11 ; glyphe identifié par `OUTILS\glyphes.html`), mesures de `uia-*.json`
-  converties en px CSS (diviser par l'échelle d'affichage), barre de titre native non redessinée ; la couleur de
-  celle d'Edge suit `<meta name="theme-color">` (thème sombre : la barre devient sombre). Les onglets qu'un
-  logiciel place dans sa barre de titre (Bloc-notes, Terminal) se reproduisent en HTML juste en dessous, sans
-  redessiner Réduire/Agrandir/Fermer. Barre de menus : `data-menubar` (section 5) ; Alt+F peut être pris par
-  Edge dans une vraie fenêtre (limite à vérifier et à dire). Détails et codes de glyphes : `fidelite.md` §11.
-- **Lanceur** : copier `assets/lancer-app.cmd` à la racine du clone et régler en tête `CU_TITRE`, `CU_ID`,
+  (police installée sur Windows 11 ; glyphe identifié par `$OUTILS/glyphes.html`, Windows uniquement), mesures
+  de `uia-*.json` converties en px CSS (diviser par l'échelle d'affichage), barre de titre native non
+  redessinée ; la couleur de celle d'Edge suit `<meta name="theme-color">` (thème sombre : la barre devient
+  sombre). Les onglets qu'un logiciel place dans sa barre de titre (Bloc-notes, Terminal) se reproduisent en
+  HTML juste en dessous, sans redessiner Réduire/Agrandir/Fermer. Barre de menus : `data-menubar` (section 5) ;
+  Alt+F peut être pris par Edge dans une vraie fenêtre (limite à vérifier et à dire). Sur un Mac, les polices
+  Segoe n'existent pas : l'identification des glyphes et la vérification d'un clone de logiciel Windows (±2 px)
+  se font sous Windows ; sur Mac, icônes en SVG recadrés ou dessinés et écart de police signalé. Détails et
+  codes de glyphes : `fidelite.md` §11.
+- **Logiciel macOS** : appli Electron/CEF → mêmes règles que le web (DOM capturé) ; ses menus vivent dans la
+  barre de menus globale de macOS (pas dans la fenêtre) et ses feux tricolores sont dessinés par le système :
+  ne pas les redessiner, l'écart se dit. Appli native (AppKit, SwiftUI, Catalyst, Tauri) : reconstruction
+  d'après les seules images de capture, **fidélité réduite** annoncée, aucune mesure garantie.
+- **Lanceur Windows** : copier `assets/lancer-app.cmd` à la racine du clone et régler en tête `CU_TITRE`, `CU_ID`,
   `CU_PORT`, `CU_PAGE` (chemin sans paramètres : `/ecrans/principal/`, la barre finale est ajoutée si elle
   manque), `CU_LARGEUR`, `CU_HAUTEUR`. Ces deux-là fixent la taille **extérieure** de la fenêtre Edge (cadre
   et barre de titre d'Edge compris) : pour une zone de contenu égale à celle de l'original (px CSS =
   `cadreEcran ÷ echelle`), ajouter environ 14 px en largeur et 37 en hauteur (mesuré à 125 % : 1155×695 →
-  contenu 1142×658), puis le vérifier : `set CU_NAV_EXTRA=--remote-debugging-port=9230`, lancer, et
-  `py "%OUTILS%\cdp_eval.py" --port 9230 eval --expr "[innerWidth, innerHeight]"`. Il démarre
+  contenu 1142×658), puis le vérifier : lancer avec `CU_NAV_EXTRA=--remote-debugging-port=9230`, et
+  `python3 "$OUTILS/cdp_eval.py" --port 9230 eval --expr "[innerWidth, innerHeight]"`. Il démarre
   `py -m http.server` (fenêtre réduite « Serveur - … ») si la page ne répond pas, puis ouvre Edge (Chrome à
   défaut) avec un **profil dédié** (`%LOCALAPPDATA%\copieur-universel\profils\<CU_ID>`) : fenêtre
   indépendante, taille respectée, `localStorage` du clone conservé. Options : `--verifier` (diagnostic sans
@@ -324,9 +343,27 @@ d'adresse ni d'onglets, la barre de titre Windows affiche `document.title`.
   $s = (New-Object -ComObject WScript.Shell).CreateShortcut("$env:USERPROFILE\Desktop\<Nom> (clone).lnk")
   $s.TargetPath = "<CLONE>\lancer-app.cmd"; $s.WorkingDirectory = "<CLONE>"; $s.WindowStyle = 7; $s.Save()
   ```
-- **macOS / Linux** (pas de `.cmd`) : `python3 -m http.server 8770 --bind 127.0.0.1 --directory "<CLONE>" &`
-  puis `"/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge" --app=http://127.0.0.1:8770/ecrans/principal/
-  --user-data-dir="$HOME/.copieur-universel/<id>"` (ou `google-chrome --app=…` sous Linux).
+- **Lanceur macOS** : `assets/lancer-app.command`, copié avec son bit exécutable (§2), mêmes réglages `CU_*`
+  en tête (ou en variables d'environnement : `CU_PORT=8771 "$CLONE/lancer-app.command"`), mêmes options
+  `--verifier`, `--serveur`, `--arreter`, `--aide` ; bash 3.2, fins de ligne LF. Double-clic dans le Finder :
+  il démarre `python3 -m http.server` sur 127.0.0.1 si la page ne répond pas (PID noté hors du clone, dans
+  `~/Library/Application Support/copieur-universel/serveurs/`), puis ouvre Chrome (`CU_CHROME`, puis
+  /Applications, ~/Applications, ~/Desktop, puis Spotlight ; Edge ou Chromium à défaut) par
+  `open -na "<Chrome>.app" --args --app=<URL> --window-size=L,H --user-data-dir=<profil>` avec un **profil
+  dédié** (`~/Library/Application Support/copieur-universel/profils/<CU_ID>`) : `-n` est indispensable, sinon
+  les arguments partiraient au Chrome déjà ouvert de l'utilisateur. Comme `lancer-app.cmd`, il ouvre une
+  fenêtre visible : c'est un lanceur pour l'utilisateur, jamais lancé sans option pendant la construction ou
+  la vérification (là : `--verifier`, `--serveur`, `--arreter`). `--arreter` n'arrête que le serveur démarré
+  par CE lanceur (PID noté, `http.server` du port et du dossier du clone, page servie identique au fichier) ;
+  un serveur lancé par un agent s'arrête par son propre PID. Taille : `CU_LARGEUR`/`CU_HAUTEUR` = taille
+  extérieure, barre de titre comprise (pas de cadre en largeur), en points = px CSS sur un écran Retina ;
+  vérifier la zone de contenu comme sous Windows (`CU_NAV_EXTRA=--remote-debugging-port=9230`, puis
+  `cdp_eval.py --port 9230 eval`). Tester avec `"$CLONE/lancer-app.command" --verifier` avant de livrer
+  (aucun effet ; `CU_ESSAI=1` affiche la commande d'ouverture sans l'exécuter, mais démarre le serveur s'il
+  le faut). Raccourci sur le Bureau (facultatif) : un lien symbolique, que le lanceur suit :
+  `ln -s "$CLONE/lancer-app.command" "$HOME/Desktop/<Nom> (clone).command"`.
+- **Linux** : `python3 -m http.server 8770 --bind 127.0.0.1 --directory "$CLONE" &` puis
+  `google-chrome --app=http://127.0.0.1:8770/ecrans/principal/ --user-data-dir="$HOME/.config/copieur-universel/profils/<id>"`.
 
 ---
 
@@ -345,8 +382,8 @@ La fondation est terminée quand la page de référence a passé **deux** vérif
 données et la configuration sont gelées, que le GUIDE est écrit et que l'utilisateur a validé.
 Contrôle rapide de ses propres pages avant de rendre la main (serveur local lancé) :
 ```bash
-py "$OUTILS/check_links.py" --root "<CLONE>" --base http://localhost:<PORT> --original <hôte de l'original>
-py "$OUTILS/scan_pii.py" --root "<CLONE>" --allow-domain "exemple.*"
+python3 "$OUTILS/check_links.py" --root "$CLONE" --base http://localhost:<PORT> --original <hôte de l'original>
+python3 "$OUTILS/scan_pii.py" --root "$CLONE" --allow-domain "exemple.*"
 ```
 (`check_links.py` liste toute référence à l'original : navigation, scripts ou API sont à corriger, seules les
 ressources statiques publiques admises par le GUIDE restent. `scan_pii.py` renvoie un code non nul s'il trouve

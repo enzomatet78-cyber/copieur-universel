@@ -9,7 +9,7 @@ attributs, mêmes règles de propriété. Le GUIDE du projet (§9) les reprend e
 ## 1. Arborescence du clone
 
 ```
-<CLONE>/                              racine servie par py -m http.server (jamais ouverte en file://)
+<CLONE>/                              racine servie par python3 -m http.server (jamais ouverte en file://)
   index.html                          redirection vers la page d'accueil (/app/... ou /ecrans/principal/)
   app/index.html                      (web) redirection vers l'accueil, ou la page « / » de l'original
   app/<route>/index.html              (web) une page par route
@@ -22,7 +22,8 @@ attributs, mêmes règles de propriété. Le GUIDE du projet (§9) les reprend e
   assets/fake-data.js                 données fictives déterministes
   assets/sections/<section>.js|css    éléments communs d'une section (propriétaire unique)
   assets/img/                         images fournies par l'utilisateur ou recadrées de ses captures (bureau)
-  lancer-app.cmd                      (bureau ; facultatif pour le web) fenêtre d'appli Edge --app
+  lancer-app.cmd | .command           (bureau ; facultatif pour le web) fenêtre d'appli : Edge --app (Windows),
+                                      Chrome --app (macOS)
 ```
 Les captures, le GUIDE, l'inventaire et les scripts de test restent dans le **dossier de travail**, hors du
 clone : ils ne doivent être ni servis ni livrés.
@@ -58,7 +59,7 @@ pour la redirection, et `check_links.py` comme les vérificateurs savent où che
 | route qui redirige | page de redirection (§1) vers la cible locale | noter la redirection dans le compte rendu |
 | « page introuvable » dans l'original | rien | le noter ; ne pas inventer de page |
 
-`py -m http.server` redirige `/app/x` vers `/app/x/` : les liens peuvent garder la forme de l'original, avec
+`python3 -m http.server` redirige `/app/x` vers `/app/x/` : les liens peuvent garder la forme de l'original, avec
 ou sans barre finale.
 
 ---
@@ -67,11 +68,13 @@ ou sans barre finale.
 
 - Un écran = une fenêtre ou une grande vue de l'original : `ecrans/<ecran>/index.html`, `<ecran>` en
   minuscules-tirets français (`principal`, `preferences`, `a-propos`, `editeur`, `historique`…).
-- La racine `index.html` redirige vers `/ecrans/principal/` ; `lancer-app.cmd` ouvre `CU_PAGE=/ecrans/principal/`.
+- La racine `index.html` redirige vers `/ecrans/principal/` ; le lanceur (`lancer-app.cmd` sous Windows,
+  `lancer-app.command` sous macOS) ouvre `CU_PAGE=/ecrans/principal/`.
 - **Boîtes de dialogue modales** (Préférences, Rechercher, À propos qui bloquent la fenêtre) : modales dans
   l'écran qui les ouvre (`data-modal-open`), à la taille relevée.
 - **Fenêtres indépendantes** (deuxième fenêtre d'un outil, palette flottante) : écran séparé, ouvert par
-  `window.open('/ecrans/<ecran>/', '<ecran>', 'popup,width=W,height=H')` — Edge l'ouvre en fenêtre sans barre.
+  `window.open('/ecrans/<ecran>/', '<ecran>', 'popup,width=W,height=H')` — la fenêtre d'appli l'ouvre en
+  fenêtre sans barre d'adresse.
 - Vues internes d'une même fenêtre (onglets, panneaux latéraux, pages d'un assistant) : dans l'écran, avec
   `data-tabs` ou des états, pas des fichiers séparés.
 - `<title>` = titre exact de la fenêtre originale, caractère par caractère (ex. `Sans titre – Bloc-notes`,
@@ -112,9 +115,11 @@ ou sans barre finale.
 
 ## 6. La coque propre à l'appli : exemple complet
 
-Exemple **testé** (page de démonstration du skill : navigation active, repli mémorisé seulement au clic,
-menu utilisateur, icônes capturées). À adapter : la structure et les classes viennent du dump de la coque de
-l'original, pas de cet exemple.
+Exemple **testé** (page de démonstration du skill, sous Windows et sous macOS : navigation active, repli
+mémorisé seulement au clic, menu utilisateur, icônes capturées). À adapter : la structure et les classes
+viennent du dump de la coque de l'original, pas de cet exemple. Cette organisation (`shell-base.js` + `shell.js`,
+`#nav-slot`) est postérieure au clone iClosed (une seule coque `shell.js`, `#root`/`#sidebar-wrap`) : elle n'a
+été validée que sur cette page de démonstration, pas encore sur un clone complet.
 
 ```js
 /* assets/shell.js — coque propre à l'appli « <Nom> » (s'appuie sur shell-base.js) */
@@ -247,9 +252,11 @@ icon: 'photo', href: '/app/medias' } (pages : app/medias)`.
 ## 1. Le projet
 - Dossier du clone : `<CLONE>` (PROJET ci-dessous) — servi sur `http://localhost:<PORT>/` (serveur déjà lancé :
   ne pas le lancer ni l'arrêter).
+- Outils : `OUTILS="<chemin absolu du dossier outils>"` ; commandes pour l'outil Bash, chemins entre guillemets,
+  `python3` (sous Windows, `py` remplace `python3`).
 - Original : `<URL ou programme>` — <connecté : compte de l'utilisateur, LECTURE SEULE | public | logiciel>.
-- Une page = `PROJET\app\<route>\index.html` (route `/app/x` → `app\x\index.html`) | un écran =
-  `PROJET\ecrans\<ecran>\index.html`. Liens internes : `/app/x`.
+- Une page = `PROJET/app/<route>/index.html` (route `/app/x` → `app/x/index.html`) | un écran =
+  `PROJET/ecrans/<ecran>/index.html`. Liens internes : `/app/x`.
 - Déjà fait et VALIDÉ (ne pas modifier) : `<page de référence>`, `assets/shell-base.*`, `assets/shell.*`,
   `assets/tailwind-config.js`, `assets/fake-data.js`, redirections.
 - Référence de qualité : ouvrir `http://localhost:<PORT>/<page de référence>` et lire sa source.
@@ -283,9 +290,11 @@ icon: 'photo', href: '/app/medias' } (pages : app/medias)`.
 ## 7. Vérifier son travail
 - Navigateur intégré (`mcp__Claude_Browser__*`) : SON onglet (`tabs_create`/`preview_start`), `tabId` partout,
   `resize_window` au viewport, `read_console_messages`, captures à comparer ; fermer son onglet à la fin.
-- Navigateur intégré absent ou plein : Edge/Chrome headless sur profil temporaire
-  (`<OUTILS>\headless.ps1 -Action lancer`, noter port et profil), `cdp_eval.py nav --console`, `eval --file
-  <OUTILS>\verif.js`, `shot`, `hover` ; à la fin `headless.ps1 -Action fermer -Profil <profil> -Port <port>`.
+- Navigateur intégré absent ou plein : Chrome/Edge headless sur profil temporaire
+  (`python3 "$OUTILS/headless.py" lancer --viewport <L×H>` → noter port et profil en clair),
+  `python3 "$OUTILS/cdp_eval.py" --port <port> nav --console`, `eval --file "$OUTILS/verif.js"`, `shot`, `hover` ;
+  à la fin `python3 "$OUTILS/headless.py" fermer --profil "<profil>" --port <port>`. Jamais `open -a` ni un
+  navigateur sans `--headless=new` et profil temporaire : il s'ouvrirait avec les sessions de l'utilisateur.
 - Logiciel : PID et handle de l'instance lancée pour la capture : <…> (relevés dans le notes.md de la capture).
 - Le navigateur réel de l'utilisateur est réservé aux agents de capture ; personne ne retourne dans l'appli
   réelle pour « vérifier un détail » : un état manquant se signale dans le compte rendu.
@@ -299,14 +308,17 @@ icon: 'photo', href: '/app/medias' } (pages : app/medias)`.
 `lib:nom xN | attributs | contenu` enregistre `lib:nom` et l'alias `nom`. Une ligne « sprite externe » doit
 être complétée à la main (SVG du symbole relevé sur l'image ou dans le DOM).
 
-**Dump → contenu de `<main>`** : l'outil `OUTILS\dom2page.py` (Python standard, testé sur des dumps de l'ancien
+**Dump → contenu de `<main>`** : l'outil `OUTILS/dom2page.py` (Python standard, testé sur des dumps de l'ancien
 et du nouveau kit) inverse les échappements du kit s'il en reste (y compris un dump dont le seul échappement est
 un « § »), transforme les icônes reconnues en espaces réservés `data-icon`, garde le SVG complet des icônes sans
 nom, et liste ce qui reste à reconstruire à la main :
 ```
-py "%OUTILS%\dom2page.py" "<capture>\<page>\dom-initial.html" "<TRAVAIL>\build\main.html"
+python3 "$OUTILS/dom2page.py" "<capture>/<page>/dom-initial.html" "<TRAVAIL>/build/main.html"
 → (sortie d'erreur) icones a enregistrer (12) : tabler:home, …   a reconstruire (2) : - IFRAME https://… 444x248 …
 ```
+Le mode est deviné (marqueurs du kit et aucun « ; & ? » brut = dump échappé) ; `--echappe` ou `--brut` le
+force. Sont listés : `IFRAME`, `WISTIA`, `SVG complexe`, `CANVAS`, `OBJECT`, `EMBED`, les lignes « +N … non
+capturés » et les avatars masqués (`src="[AVATAR]"`).
 Ensuite, à la main : retirer les commentaires de notes du capteur, remplacer les lignes de données par un
 rendu `FAKE` (le dump n'en garde que quelques-unes), rebrancher les états, reconstruire les éléments listés. Les
 `<template id>` gardés par le kit (textes d'infobulle) se reprennent tels quels pour `data-tip="id"`.

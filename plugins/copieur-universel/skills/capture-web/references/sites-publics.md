@@ -3,7 +3,8 @@
 Pour tout ce qui s'affiche **sans compte** : site vitrine, page de tarifs, documentation, démo publique, parties
 publiques d'une appli. On travaille sur un **profil de navigateur vierge et temporaire** : on voit exactement ce
 que voit un visiteur, et rien ne touche aux sessions de l'utilisateur. `OUTILS` = dossier `outils/` du plugin
-(voir SKILL.md) ; `CAP` = dossier de la page dans `<TRAVAIL>\capture\<unité>\<slug>\`.
+(voir SKILL.md) ; `CAP` = dossier de la page dans `<TRAVAIL>/capture/<unité>/<slug>/`. Commandes pour l'outil
+Bash (macOS, Git Bash) ; sous Windows, `py` remplace `python3`.
 
 Sommaire : 1. Règles propres aux sites publics · 2. Option A : Chrome/Edge headless + cdp_eval.py · 3. Option B :
 navigateur intégré · 4. Secours sans cdp_eval.py · 5. Pièges
@@ -48,34 +49,51 @@ filtre de sortie), le kit est réinjecté gratuitement à chaque appel, le viewp
 
 Toujours avec un `--user-data-dir` **temporaire et neuf** : sans lui, Chrome confierait la commande au Chrome déjà
 ouvert de l'utilisateur (son profil, ses sessions) et le port de débogage ne s'ouvrirait pas (Chrome refuse
-d'ailleurs le débogage à distance sur le profil par défaut).
+d'ailleurs le débogage à distance sur le profil par défaut). Sous Windows comme sous macOS, jamais l'exécutable du
+navigateur sans `--headless=new` **et** un `--user-data-dir` temporaire ; sous macOS, jamais `open -a "Google
+Chrome"` non plus (il passe la main au Chrome ouvert de l'utilisateur).
 
-L'outil `headless.ps1` fait tout cela d'un coup (testé avec Chrome 154 et Edge 155) : profil neuf
-`%TEMP%\cu-<navigateur>-xxxxxxxx`, port libre (ou celui demandé, refusé s'il est déjà occupé : les commandes
-partiraient chez un autre navigateur), lancement en `--headless=new`, attente du port, viewport réglé par
-`cdp_eval.py size` :
+L'outil `headless.py` fait tout cela d'un coup (Python standard, Windows, macOS et Linux) : profil neuf
+`cu-<navigateur>-xxxxxxxx` dans le dossier temporaire du système, port libre (ou celui demandé, refusé s'il est
+déjà occupé : les commandes partiraient chez un autre navigateur), lancement en `--headless=new`, attente du port,
+viewport réglé par `cdp_eval.py size` :
 ```
-powershell -NoProfile -ExecutionPolicy Bypass -File "%OUTILS%\headless.ps1" -Action lancer [-Navigateur edge] [-Port 9333] [-Viewport 1536x791] [-Echelle 1.25] [-Langue fr-FR]
-→ {"ok":true,"navigateur":"chrome","port":9333,"pid":…,"profil":"C:\\…\\Temp\\cu-chrome-1a2b3c4d","viewport":"1536x791"}
+python3 "$OUTILS/headless.py" lancer [--navigateur chrome|edge] [--port 9333] [--viewport 1536x791] [--echelle 2] [--langue fr]
+→ {"ok":true,"navigateur":"chrome","exe":"…","port":9333,"pid":…,"profil":"/private/var/folders/…/T/cu-chrome-1a2b3c4d","viewport":"1536x791","message":"…"}
 ```
-**Noter `port` et `profil`** : ils servent à toutes les commandes et à la fermeture (§2.4). `-Echelle 1.25`
-rend la page au facteur d'un écran à 125 % (`devicePixelRatio` 1,25) quand les mesures doivent tomber comme
-sur la capture. Un profil neuf charge quand même les extensions imposées par la machine (stratégie
-d'entreprise) : `list` montre alors des cibles `service_worker`, `background_page` ou `browser_ui` en plus de
-la page ; les ignorer.
+**Noter `port` et `profil` en entier** (chaque appel Bash est un nouveau shell) : ils servent à toutes les
+commandes et à la fermeture (§2.4). `--echelle` rend la page au facteur d'un écran donné (`devicePixelRatio`) :
+`1.25` pour un écran Windows à 125 %, `2` pour un écran Retina de Mac, quand les mesures doivent tomber comme
+sur la capture. Un `avertissement` dans la réponse est à lire. Un profil neuf charge quand même les extensions
+imposées par la machine (stratégie d'entreprise) : `list` montre alors des cibles `service_worker`,
+`background_page` ou `browser_ui` en plus de la page ; les ignorer. Windows : `headless.ps1` reste disponible
+(mêmes actions).
 
-Sans l'outil (cmd, profil neuf à chaque lancement, à noter) :
-`start "" "C:\Program Files\Google\Chrome\Application\chrome.exe" --headless=new --remote-debugging-port=9333 --user-data-dir="%TEMP%\cu-chrome-1" --window-size=1554,887 --no-first-run about:blank`
-puis `py "%OUTILS%\cdp_eval.py" --port 9333 --wait-port 15 size --viewport 1536x791` : la fenêtre headless
+**Trouver le navigateur** : `headless.py` prend d'abord la variable `CU_CHROME` (ou `CU_EDGE` : exécutable ou
+dossier `.app`), puis les emplacements habituels — Windows : Program Files, AppData\Local ; macOS :
+`/Applications`, `~/Applications`, `~/Desktop`, puis Spotlight (`mdfind "kMDItemCFBundleIdentifier ==
+'com.google.Chrome'"`). `python3 "$OUTILS/headless.py" trouver` affiche le chemin retenu ; sous macOS,
+l'exécutable est `<…>/Google Chrome.app/Contents/MacOS/Google Chrome`. Chrome installé ailleurs :
+`CU_CHROME="<chemin>" python3 "$OUTILS/headless.py" lancer`. Edge est rarement installé sur un Mac : Chrome par
+défaut.
+
+Sans l'outil (macOS, un seul appel Bash : les variables ne survivent pas à l'appel ; profil neuf `cu-*`, **à
+noter** avec le PID) :
+```bash
+CHROME="$(mdfind "kMDItemCFBundleIdentifier == 'com.google.Chrome'" | head -1)/Contents/MacOS/Google Chrome"; T="${TMPDIR:-/tmp}"; PROFIL="$(mktemp -d "${T%/}/cu-chrome-XXXXXXXX")"
+"$CHROME" --headless=new --remote-debugging-port=9333 --user-data-dir="$PROFIL" --window-size=1554,887 --no-first-run --no-default-browser-check about:blank >/dev/null 2>&1 & echo "pid=$! profil=$PROFIL"
+```
+puis `python3 "$OUTILS/cdp_eval.py" --port 9333 --wait-port 15 size --viewport 1536x791` : la fenêtre headless
 retire une marge à `--window-size`, différente selon le navigateur, que `size` corrige d'après le viewport
-mesuré (réglage persistant). (macOS/Linux : même options, `--user-data-dir="$(mktemp -d)"`.)
+mesuré (réglage persistant). Vérifier d'abord que le port est libre (`lsof -nP -iTCP:9333 -sTCP:LISTEN` ne
+renvoie rien) : sinon les commandes iraient à un autre navigateur.
 
 **Petit écran** : une fenêtre headless ne descend pas sous ~500 px de large (`size --viewport 375x812` donne
 504×812, avec un avertissement). Garder cette fenêtre et passer la taille à chaque commande :
 ```
-py "%OUTILS%\cdp_eval.py" --port 9333 nav  --url "<URL>" --viewport 375x812 --wait 3    chargement à 375 px
-py "%OUTILS%\cdp_eval.py" --port 9333 shot --viewport 375x812@2 --out "%CAP%\60-mobile-375.png"
-py "%OUTILS%\cdp_eval.py" --port 9333 eval --viewport 375x812 --file "%OUTILS%\capture-kit.js" --expr "(__config({raw:true}), __dump('body', 8))" --out "%CAP%\dom-375.html"
+python3 "$OUTILS/cdp_eval.py" --port 9333 nav  --url "<URL>" --viewport 375x812 --wait 3    chargement à 375 px
+python3 "$OUTILS/cdp_eval.py" --port 9333 shot --viewport 375x812@2 --out "$CAP/60-mobile-375.png"
+python3 "$OUTILS/cdp_eval.py" --port 9333 eval --viewport 375x812 --file "$OUTILS/capture-kit.js" --expr "(__config({raw:true}), __dump('body', 8))" --out "$CAP/dom-375.html"
 ```
 `nav --viewport` compte : une appli qui décide de sa disposition **au chargement** (barre repliée sous 768 px)
 ne se met pas toujours à jour quand la fenêtre change ensuite. Seule la taille change, pas l'agent utilisateur
@@ -83,16 +101,16 @@ ni le tactile (une page qui détecte le mobile par l'agent utilisateur restera e
 
 ### 2.2 Commandes `cdp_eval.py`
 
-Interface de l'outil (`py "%OUTILS%\cdp_eval.py" <commande> --help` en cas de doute) :
+Interface de l'outil (`python3 "$OUTILS/cdp_eval.py" <commande> --help` en cas de doute) :
 ```
-py "%OUTILS%\cdp_eval.py" --port 9333 [--wait-port 10] list
-py "%OUTILS%\cdp_eval.py" --port 9333 size --target <…> --viewport 1536x791
-py "%OUTILS%\cdp_eval.py" --port 9333 nav  --target <…> --url <URL> [--wait 3] [--viewport 375x812] [--console]
-py "%OUTILS%\cdp_eval.py" --port 9333 eval --target <…> [--file <fichier.js>] [--expr "<JS>"] --out <fichier> [--viewport …]
-py "%OUTILS%\cdp_eval.py" --port 9333 shot --target <…> --out <image.png> [--full | --selector "<CSS>"] [--viewport LxH@1.25]
-py "%OUTILS%\cdp_eval.py" --port 9333 hover --target <…> --selector "<CSS>" [--out <image.png>] [--leave]
-py "%OUTILS%\cdp_eval.py" --port 9333 console [--out console.json]          messages déjà émis par la page
-py "%OUTILS%\cdp_eval.py" --port 9333 close --target <…>                    fermer un onglet en trop
+python3 "$OUTILS/cdp_eval.py" --port 9333 [--wait-port 10] list
+python3 "$OUTILS/cdp_eval.py" --port 9333 size --target <…> --viewport 1536x791
+python3 "$OUTILS/cdp_eval.py" --port 9333 nav  --target <…> --url <URL> [--wait 3] [--viewport 375x812] [--console]
+python3 "$OUTILS/cdp_eval.py" --port 9333 eval --target <…> [--file <fichier.js>] [--expr "<JS>"] --out <fichier> [--viewport …]
+python3 "$OUTILS/cdp_eval.py" --port 9333 shot --target <…> --out <image.png> [--full | --selector "<CSS>"] [--viewport LxH@2]
+python3 "$OUTILS/cdp_eval.py" --port 9333 hover --target <…> --selector "<CSS>" [--out <image.png>] [--leave]
+python3 "$OUTILS/cdp_eval.py" --port 9333 console [--out console.json]          messages déjà émis par la page
+python3 "$OUTILS/cdp_eval.py" --port 9333 close --target <…>                    fermer un onglet en trop
 ```
 `--viewport` ne vaut que le temps de la commande (le réglage disparaît avec la connexion) : le répéter à chaque
 appel. `nav --console` relève erreurs, avertissements et requêtes en échec du chargement (code 4 avec
@@ -106,8 +124,12 @@ appel. `nav --console` relève erreurs, avertissements et requêtes en échec du
 - `eval` évalue d'abord le fichier, puis l'expression ; les promesses sont attendues ; un résultat chaîne est
   écrit tel quel (UTF-8), un objet en JSON. D'où le **mode raw** du kit : `__config({ raw: true })` → `__dump`,
   `__styles`, `__icons`, `__chart(i)` renvoient la chaîne complète, sans échappements ni morceaux. La
-  configuration est gardée dans l'onglet ; la répéter ne coûte rien. L'expression peut enchaîner plusieurs
-  appels avec la virgule `(__config({ raw: true }), __dump('main', 8))` ou le point-virgule
+  configuration est gardée dans le `sessionStorage` de l'onglet, propre à l'**origine** : après une redirection
+  ou une navigation vers un autre hôte (`www.` → domaine nu, sous-domaine `docs.`), `raw` repasse à `false` et le
+  dictionnaire est vide — le fichier `--out` ne contient alors que le nombre de morceaux (« 1 ») et les vrais
+  noms reviennent (testé). D'où `__config({raw:true})` **en tête de chaque expression** (ça ne coûte rien), et
+  `__addNames` à refaire sur un nouvel hôte (`__info().noms` à 0 = dictionnaire vide). L'expression peut
+  enchaîner plusieurs appels avec la virgule `(__config({ raw: true }), __dump('main', 8))` ou le point-virgule
   `__config({raw:true}); __dump('main', 8)` : c'est la dernière valeur qui est écrite (les deux formes testées).
 - `shot --selector "<CSS>"` capture un seul élément (l'équivalent d'un zoom sur un détail).
 - Codes de sortie : 0 succès ; 1 connexion, cible ou argument (message en français qui dit quoi faire) ;
@@ -117,28 +139,29 @@ appel. `nav --console` relève erreurs, avertissements et requêtes en échec du
   ouverte`) avec le code 0 : il finit dans le fichier `--out`. Regarder la taille annoncée (« N caractères
   écrits ») avant de passer à la suite.
 
-Déroulé d'une page, en Git Bash (remplacer `$OUTILS` et `$CAP` par les chemins absolus, entre guillemets ; les
-variables du shell ne survivent pas d'un appel Bash à l'autre). En cmd : `py "%OUTILS%\cdp_eval.py" …`.
+Déroulé d'une page (outil Bash : remplacer `$OUTILS` et `$CAP` par les chemins absolus, entre guillemets, ou les
+définir en tête du même appel ; les variables du shell ne survivent pas d'un appel Bash à l'autre) :
 ```bash
-py "$OUTILS/cdp_eval.py" --port 9333 nav  --target 0 --url "https://exemple.org/tarifs" --wait 4
-py "$OUTILS/cdp_eval.py" --port 9333 eval --target 0 --file "$OUTILS/capture-kit.js" --expr "(__config({ raw: true, keep: [] }), __info())" --out "$CAP/info.json"
-py "$OUTILS/cdp_eval.py" --port 9333 eval --target 0 --file "$OUTILS/capture-kit.js" --expr "__guessNames()"
+python3 "$OUTILS/cdp_eval.py" --port 9333 nav  --target 0 --url "https://exemple.org/tarifs" --wait 4
+python3 "$OUTILS/cdp_eval.py" --port 9333 eval --target 0 --file "$OUTILS/capture-kit.js" --expr "(__config({ raw: true, keep: [] }), __info())" --out "$CAP/info.json"
+python3 "$OUTILS/cdp_eval.py" --port 9333 eval --target 0 --file "$OUTILS/capture-kit.js" --expr "(__config({raw:true}), __guessNames())"
 # résultat affiché dans la console, jamais écrit dans le dossier de capture (ce sont de vrais noms) ; le relire, puis :
-py "$OUTILS/cdp_eval.py" --port 9333 eval --target 0 --file "$OUTILS/capture-kit.js" --expr "(__addNames(['Prénom Nom', 'Autre Nom']), __anonLive())" --out "$CAP/_anon.txt"
-py "$OUTILS/cdp_eval.py" --port 9333 eval --target 0 --file "$OUTILS/capture-kit.js" --expr "__steps()" --out "$CAP/_steps.json"
-py "$OUTILS/cdp_eval.py" --port 9333 shot --target 0 --out "$CAP/01-haut.png"
-py "$OUTILS/cdp_eval.py" --port 9333 eval --target 0 --file "$OUTILS/capture-kit.js" --expr "(__scroll(672), __wait(800))" --out "$CAP/_scroll.txt"
-py "$OUTILS/cdp_eval.py" --port 9333 shot --target 0 --out "$CAP/02-milieu.png"
-py "$OUTILS/cdp_eval.py" --port 9333 eval --target 0 --file "$OUTILS/capture-kit.js" --expr "(__scroll(0), __dump('main', 8))" --out "$CAP/dom-initial.html"
-py "$OUTILS/cdp_eval.py" --port 9333 eval --target 0 --file "$OUTILS/capture-kit.js" --expr "__styles('body')" --out "$CAP/../styles.css"
-py "$OUTILS/cdp_eval.py" --port 9333 eval --target 0 --file "$OUTILS/capture-kit.js" --expr "__icons('body')" --out "$CAP/../icones.txt"
+python3 "$OUTILS/cdp_eval.py" --port 9333 eval --target 0 --file "$OUTILS/capture-kit.js" --expr "(__config({raw:true}), __addNames(['Prénom Nom', 'Autre Nom']), __anonLive())" --out "$CAP/_anon.txt"
+python3 "$OUTILS/cdp_eval.py" --port 9333 eval --target 0 --file "$OUTILS/capture-kit.js" --expr "(__config({raw:true}), __steps())" --out "$CAP/_steps.json"
+python3 "$OUTILS/cdp_eval.py" --port 9333 shot --target 0 --out "$CAP/01-haut.png"
+python3 "$OUTILS/cdp_eval.py" --port 9333 eval --target 0 --file "$OUTILS/capture-kit.js" --expr "(__scroll(672), __wait(800))" --out "$CAP/_scroll.txt"
+python3 "$OUTILS/cdp_eval.py" --port 9333 shot --target 0 --out "$CAP/02-milieu.png"
+python3 "$OUTILS/cdp_eval.py" --port 9333 eval --target 0 --file "$OUTILS/capture-kit.js" --expr "(__config({raw:true}), __scroll(0), __dump('main', 8))" --out "$CAP/dom-initial.html"
+python3 "$OUTILS/cdp_eval.py" --port 9333 eval --target 0 --file "$OUTILS/capture-kit.js" --expr "(__config({raw:true}), __styles('body'))" --out "$CAP/../styles.css"
+python3 "$OUTILS/cdp_eval.py" --port 9333 eval --target 0 --file "$OUTILS/capture-kit.js" --expr "(__config({raw:true}), __icons('body'))" --out "$CAP/../icones.txt"
 ```
 Les fichiers `_*.json` / `_*.txt` sont des sorties de travail (on peut les regrouper dans `$CAP/_tmp/`).
 - `shot --full` capture toute la hauteur **du document**. Si le contenu défile dans un conteneur interne
   (`main` en `overflow-y-auto h-screen`, fréquent dans les applis), la page entière est courte : faire défiler avec
   `__scroll(y)` (positions de `__steps()`) et une image par position.
 - Le kit est réinjecté par `--file` à chaque `eval` ; le dictionnaire et la config survivent aux navigations dans
-  le même onglet (`sessionStorage`). Après `nav`, `__anonLive()` est à refaire (nouvelle page).
+  le même onglet **sur la même origine** (`sessionStorage`). Après `nav`, `__anonLive()` est à refaire (nouvelle
+  page) ; après un changement d'hôte, `__addNames` aussi.
 - Un dump vide ou « racine introuvable » juste après `nav` : la page n'avait pas fini ; relancer avec un `--wait`
   plus long, ou vérifier `__info().scrollHeight`.
 
@@ -149,7 +172,7 @@ Les fichiers `_*.json` / `_*.txt` sont des sorties de travail (on peut les regro
   `--expr "(document.querySelectorAll('[role=tab]')[1].click(), __wait(1500))"`, puis `shot`, puis
   `__dump('main', 8)` ou `__dump('modal')` → `dom-onglet-<nom>.html`.
   Ne jamais cliquer d'envoi de formulaire, de connexion, d'achat, de téléchargement.
-- **Survols et infobulles** : `cdp_eval.py hover --selector "<CSS>" --out "%CAP%\40-infobulle-<nom>.png"`
+- **Survols et infobulles** : `cdp_eval.py hover --selector "<CSS>" --out "$CAP/40-infobulle-<nom>.png"`
   envoie un vrai mouvement de souris (`:hover` CSS, `mouseover`/`mouseenter`, infobulles en JavaScript) et prend
   l'image pendant le survol (testé : couleur de survol et infobulle visibles) ; puis `eval … --expr
   "(__config({raw:true}), __overlays(), __dump(0))"` pour le texte exact de l'infobulle, et `hover --leave` pour
@@ -158,28 +181,34 @@ Les fichiers `_*.json` / `_*.txt` sont des sorties de travail (on peut les regro
 - **États de la coque** : `__etat()` avant l'action, `__diffEtat()` après (SKILL.md §5).
 - **Carrousel ou animation automatique** : relever l'intervalle (deux `__dump` à quelques secondes d'écart),
   une image et un dump par diapositive ; noter que les images de comparaison dépendent du moment.
-- Graphiques : `--expr "__chart()"` (liste) puis `--expr "__chart(0)"` → `graphique-<nom>.txt`.
+- Graphiques : `--expr "(__config({raw:true}), __chart())"` (liste) puis `--expr "(__config({raw:true}),
+  __chart(0))"` → `graphique-<nom>.txt`.
 
 ### 2.4 Fermer (celui qui a lancé ferme, et seulement ce qu'il a lancé)
 
 ```
-powershell -NoProfile -ExecutionPolicy Bypass -File "%OUTILS%\headless.ps1" -Action fermer -Profil "<profil noté>" -Port <port>
-→ {"ok":true,"restants":0,"profilSupprime":true,…}
+python3 "$OUTILS/headless.py" fermer --profil "<profil noté>" --port <port>
+→ {"ok":true,"restants":0,"profilSupprime":true,"profil":"…","message":"…",…}
 ```
 L'outil quitte d'abord proprement le navigateur (`cdp_eval.py close --browser`, ce qui libère vite le profil),
-puis arrête en boucle les processus **Chrome ou Edge** dont la ligne de commande contient **ce** dossier de
-profil — jamais les autres : le navigateur de l'utilisateur n'a pas ce dossier —, ignore ceux déjà terminés (un
-processus arrêté peut rester listé, `HasExited` vrai, port encore en écoute mais muet) et supprime le profil
-jusqu'à 60 s (les processus enfants le gardent verrouillé 10 à 20 s ; chemins longs gérés). Il refuse tout
-dossier qui n'est pas un `cu-*` de `%TEMP%`. Si `ok` vaut `false`, le message dit quoi faire (relancer plus
-tard) et donne le chemin restant : le signaler plutôt qu'annoncer un nettoyage fait. `-Action etat -Profil …`
-liste les processus encore vivants.
+puis arrête en boucle les processus dont la ligne de commande contient **ce** dossier de profil — jamais les
+autres : le navigateur de l'utilisateur n'a pas ce dossier —, ignore ceux déjà terminés et supprime le profil
+(jusqu'à 60 s, `--attente` : les processus enfants le gardent occupé 10 à 20 s). Il refuse tout dossier qui
+n'est pas un `cu-*` placé directement dans le dossier temporaire du système. Si `ok` vaut `false`, le message dit
+quoi faire (relancer plus tard) et donne le chemin restant : le signaler plutôt qu'annoncer un nettoyage fait.
+`python3 "$OUTILS/headless.py" etat --profil "<profil noté>"` liste les processus encore vivants.
 
-Pourquoi un script plutôt que des lignes PowerShell à recopier : l'outil PowerShell de Claude Code bloque
-`Remove-Item` sur un chemin contenu dans une variable (et même une commande entière dont un message contient un
-chemin), une boucle recopiée finissait avec le mauvais exécutable (chrome.exe alors qu'on avait lancé Edge), et
-un `.ps1` enregistré sans BOM affiche des accents illisibles. Lancé avec `-File`, le script n'a aucun de ces
-problèmes. Pour relancer aussitôt un navigateur, prendre un autre port.
+Sans l'outil (macOS/Linux ; valeurs notées écrites en entier) :
+```bash
+python3 "$OUTILS/cdp_eval.py" --port <port> close --browser
+ps -axo pid,command | grep -F "<profil noté>" | grep -v grep      # vide après quelques secondes ; sinon kill <PID> de ces lignes seulement
+case "<profil noté>" in "${TMPDIR%/}"/cu-*|"/private${TMPDIR%/}"/cu-*|/tmp/cu-*) rm -rf "<profil noté>" ;; *) echo "profil refusé" ;; esac
+```
+(la suppression n'accepte qu'un `cu-*` du dossier temporaire, chemin écrit en entier).
+Pourquoi un outil plutôt que des lignes à recopier : une boucle recopiée finissait avec le mauvais exécutable
+(chrome.exe alors qu'on avait lancé Edge) ; Claude Code bloque une suppression (`rm -rf "$PROFIL"`,
+`Remove-Item $p`) dont le chemin est dans une variable ; un motif trop large (`pkill -f chrome`) arrêterait le
+navigateur de l'utilisateur. Pour relancer aussitôt un navigateur, prendre un autre port.
 
 ---
 
@@ -212,15 +241,19 @@ Utile pour explorer, voir les survols et infobulles, tester un petit écran (`re
 ## 4. Secours sans `cdp_eval.py`
 
 Si l'outil manque ou échoue, Chrome sait produire seul une image et un DOM brut (pas de kit, donc **ni
-nettoyage ni anonymisation** : réservé aux pages sans donnée personnelle) :
+nettoyage ni anonymisation** : réservé aux pages sans donnée personnelle). En un seul appel Bash, profil neuf
+noté :
+```bash
+CHROME="$(python3 "$OUTILS/headless.py" trouver)"; T="${TMPDIR:-/tmp}"; PROFIL="$(mktemp -d "${T%/}/cu-chrome-XXXXXXXX")"; echo "profil=$PROFIL"
+"$CHROME" --headless=new --user-data-dir="$PROFIL" --window-size=1554,887 --virtual-time-budget=5000 --screenshot="$CAP/01-haut.png" "https://exemple.org/"
+"$CHROME" --headless=new --user-data-dir="$PROFIL" --virtual-time-budget=5000 --dump-dom "https://exemple.org/" > "$CAP/dom-brut.html"
 ```
-"C:\Program Files\Google\Chrome\Application\chrome.exe" --headless=new --user-data-dir="%TEMP%\cu-chrome-2" --window-size=1554,887 --virtual-time-budget=5000 --screenshot="%CAP%\01-haut.png" "https://exemple.org/"
-"C:\Program Files\Google\Chrome\Application\chrome.exe" --headless=new --user-data-dir="%TEMP%\cu-chrome-2" --virtual-time-budget=5000 --dump-dom "https://exemple.org/" > "%CAP%\dom-brut.html"
-```
-Testé : l'image est écrite (à la taille de `--window-size`), mais avec une page animée le processus peut ne pas
-se terminer seul → l'arrêter ensuite par son dossier de profil (§2.4). Edge headless n'écrit rien sur la sortie
-standard avec `--dump-dom` sur ce poste : utiliser Chrome pour ce secours, ou Edge via le port de débogage. Le
-DOM brut contient scripts et attributs internes : n'en garder que la structure utile.
+Testé (aussi sous macOS, Chrome hors de `/Applications`) : l'image est écrite (à la taille de
+`--window-size`), mais avec une page animée le processus peut ne pas se terminer seul → l'arrêter ensuite par son
+dossier de profil (`headless.py fermer --profil "<profil noté>"`, §2.4), qui supprime aussi le profil. Edge
+headless n'écrit rien sur la sortie standard avec `--dump-dom` sur un poste Windows testé : utiliser Chrome pour
+ce secours, ou Edge via le port de débogage. Le DOM brut contient scripts et attributs internes : n'en garder
+que la structure utile.
 
 ---
 
@@ -229,16 +262,18 @@ DOM brut contient scripts et attributs internes : n'en garder que la structure u
 | Symptôme | Cause | Solution |
 |---|---|---|
 | `list` ne répond pas, ou un onglet s'ouvre dans le Chrome de l'utilisateur | lancé sans `--user-data-dir` neuf | relancer avec un profil temporaire neuf (§2.1) |
-| Viewport différent de la référence | marge de fenêtre headless (différente entre Chrome et Edge) ; largeur < 500 px impossible | `headless.ps1` règle la taille ; sinon `cdp_eval.py size --viewport 1536x791`, puis vérifier `__info()` ; petit écran : `--viewport 375x812` sur `nav`, `eval`, `shot` (§2.1) |
-| Les commandes agissent sur une autre page, ou un autre navigateur répond | `--target 0` alors qu'il y a plusieurs onglets ; ou port déjà occupé par une autre capture | viser un morceau d'URL ou l'identifiant ; `headless.ps1` refuse un port occupé (§2.1, §2.2) |
+| `headless.py` : navigateur introuvable | Chrome installé hors des emplacements habituels | `CU_CHROME="<chemin de l'exécutable ou du .app>"` devant la commande ; `headless.py trouver` pour vérifier (§2.1) |
+| Viewport différent de la référence | marge de fenêtre headless (différente entre Chrome et Edge) ; largeur < 500 px impossible | `headless.py` règle la taille ; sinon `cdp_eval.py size --viewport 1536x791`, puis vérifier `__info()` ; petit écran : `--viewport 375x812` sur `nav`, `eval`, `shot` (§2.1) |
+| Les commandes agissent sur une autre page, ou un autre navigateur répond | `--target 0` alors qu'il y a plusieurs onglets ; ou port déjà occupé par une autre capture | viser un morceau d'URL ou l'identifiant ; `headless.py` refuse un port occupé (§2.1, §2.2) |
+| Fichier `--out` qui ne contient que « 1 », ou vrais noms revenus, après une redirection | autre hôte = autre origine : `sessionStorage` (config `raw`, dictionnaire) vide | `__config({raw:true})` en tête de chaque expression ; `__addNames` à refaire ; vérifier `__info().raw` et `.noms` (§2.2) |
 | `styles.css` signale des « Feuilles illisibles (CORS) » | feuille servie par un autre domaine | Google Fonts : sans importance ; feuille du site : `nav --url <feuille>` dans le même onglet, relever les règles des classes listées, revenir à la page (SKILL.md §8) |
 | `eval` dépasse le délai (code 3) ou image à moitié dessinée, alors qu'un second onglet a été ouvert | onglet passé en arrière-plan : Chrome le gèle, même en headless (constaté sur une SPA) | un seul onglet ; fermer l'autre (`cdp_eval.py close --target <id>`), puis `shot --front` sur l'onglet de travail et `nav` pour le redessiner |
 | `shot --full` montre une page courte | le contenu défile dans un conteneur interne | `__steps()` + `__scroll(y)` + une image par position |
 | Après `shot --full` ou `--selector`, barres de défilement absentes, largeurs décalées de 15 px | Chrome les masque pendant une capture au-delà du viewport et ne les rend pas seul | `cdp_eval.py` (1.2) les rétablit ; s'il affiche « Chrome a masqué des barres de défilement », `nav` pour recharger avant toute mesure (`lecons.md` J10) |
 | Page de vérification anti-robot | protection du site | « not-accessible », ne pas contourner (§1) |
-| Contenu différent de ce que voit l'utilisateur | profil vierge : pas de langue/région enregistrée, A/B test | noter la langue (`__info().lang`) ; si le site suit la langue du navigateur, essayer `--lang=fr-FR` au lancement et vérifier |
-| Processus headless encore présents après la capture | seul le PID principal a été arrêté, ou arrêt plus lent que prévu | `headless.ps1 -Action fermer` (arrêt par dossier de profil, en boucle jusqu'à zéro, §2.4) |
-| « Remove-Item on system path … is blocked » dans l'outil PowerShell | garde-fou de Claude Code sur un chemin en variable | `headless.ps1 -Action fermer` (lancé avec `-File`) ; à la main, chemin écrit en entier (`rm -rf "<chemin>"` sous Git Bash) |
+| Contenu différent de ce que voit l'utilisateur | profil vierge : pas de langue/région enregistrée, A/B test | noter la langue (`__info().lang`) ; si le site suit la langue du navigateur, relancer avec `headless.py lancer --langue fr` et vérifier |
+| Processus headless encore présents après la capture | seul le PID principal a été arrêté, ou arrêt plus lent que prévu | `headless.py fermer` (arrêt par dossier de profil, en boucle jusqu'à zéro, §2.4) |
+| Suppression du profil refusée par Claude Code (« Remove-Item on system path … is blocked », ou `rm -rf` avec une variable) | garde-fou de Claude Code sur un chemin en variable | `headless.py fermer` ; à la main, chemin écrit en entier (`rm -rf "<chemin>"`) |
 | Images d'un autre domaine cassées en headless (`naturalWidth` 0, `responseStatus` 0) alors qu'elles s'affichent ailleurs | ressource refusée au profil headless | ne pas noter « cassée dans l'original » : vérifier dans le navigateur intégré ; ne rien contourner (agent utilisateur, en-têtes) |
 | `list` montre des cibles `service_worker`, `background_page`, `browser_ui` | extensions imposées par la machine, même sur un profil neuf | les ignorer ; viser la page |
 | Images de comparaison différentes d'une fois à l'autre | carrousel ou animation automatique | une image par diapositive ; en vérification, l'image juste après `nav` (§2.3) |

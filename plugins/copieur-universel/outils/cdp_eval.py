@@ -8,29 +8,37 @@ Pilote un Chrome/Edge headless lancé sur un profil temporaire, une appli Electr
 avec un port de débogage : lister les cibles, naviguer, évaluer un fichier JS (ex. capture-kit.js) puis une
 expression et écrire le résultat dans un fichier UTF-8, capturer la page en PNG/JPEG.
 
-  py cdp_eval.py --port 9222 list [--json]
-  py cdp_eval.py --port 9222 version
-  py cdp_eval.py --port 9222 new [--url URL]
-  py cdp_eval.py --port 9222 size [--target T] --viewport 1536x791
-  py cdp_eval.py --port 9222 nav  [--target T] --url URL [--wait 3] [--viewport 375x812[@2]] [--console [FICHIER]]
-  py cdp_eval.py --port 9222 eval [--target T] [--file kit.js]... [--expr "JS"] [--out sortie.txt]
-                                  [--viewport 1536x791[@1]] [--no-await] [--console [FICHIER]]
-  py cdp_eval.py --port 9222 shot [--target T] --out page.png [--full] [--selector CSS] [--viewport ...]
-  py cdp_eval.py --port 9222 hover [--target T] --selector CSS [--out survol.png] [--wait 0.6] [--viewport ...]
-  py cdp_eval.py --port 9222 console [--target T] [--out console.json] [--strict]
-  py cdp_eval.py --port 9222 close [--target T]        (ferme un onglet)
-  py cdp_eval.py --port 9222 close --browser           (quitte proprement le navigateur QU'ON A LANCÉ)
+  python3 cdp_eval.py --port 9222 list [--json]
+  python3 cdp_eval.py --port 9222 version
+  python3 cdp_eval.py --port 9222 new [--url URL]
+  python3 cdp_eval.py --port 9222 size [--target T] --viewport 1536x791
+  python3 cdp_eval.py --port 9222 nav  [--target T] --url URL [--wait 3] [--viewport 375x812[@2]] [--console [FICHIER]]
+  python3 cdp_eval.py --port 9222 eval [--target T] [--file kit.js]... [--expr "JS"] [--out sortie.txt]
+                                      [--viewport 1536x791[@1]] [--no-await] [--console [FICHIER]]
+  python3 cdp_eval.py --port 9222 shot [--target T] --out page.png [--full] [--selector CSS] [--viewport ...]
+  python3 cdp_eval.py --port 9222 hover [--target T] --selector CSS [--out survol.png] [--wait 0.6] [--viewport ...]
+  python3 cdp_eval.py --port 9222 console [--target T] [--out console.json] [--strict]
+  python3 cdp_eval.py --port 9222 close [--target T]        (ferme un onglet)
+  python3 cdp_eval.py --port 9222 close --browser           (quitte proprement le navigateur QU'ON A LANCÉ)
+  (Sous Windows, `py` remplace `python3`.)
 
   T = index affiché par « list » (0 = première page), identifiant de cible, ou morceau d'URL/titre.
   Sans --target : la première cible de type « page ».
 
 Lancer une cible (exemples) :
-  Chrome/Edge headless, profil temporaire : outils\\headless.ps1 -Action lancer (recommandé), ou (cmd)
-    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --headless=new --remote-debugging-port=9333
-        --user-data-dir=%TEMP%\\cu-chrome-1 --window-size=1554,887 about:blank
+  Chrome/Edge headless, profil temporaire : python3 outils/headless.py lancer (recommandé, macOS, Linux et
+    Windows : il note port et profil, et « fermer » arrête ce navigateur puis supprime le profil ; Windows :
+    headless.ps1 reste disponible, mêmes actions). À la main, toujours --headless=new ET un --user-data-dir
+    temporaire (sinon, ou avec « open -a », la page s'ouvre dans le Chrome de l'utilisateur, avec ses sessions) :
+    macOS : "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new
+        --remote-debugging-port=9333 --user-data-dir="${TMPDIR%/}/cu-chrome-1" --window-size=1554,887 about:blank &
+        (Chrome rangé ailleurs : python3 outils/headless.py trouver donne son exécutable)
+    Windows (cmd) : "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --headless=new
+        --remote-debugging-port=9333 --user-data-dir=%TEMP%\\cu-chrome-1 --window-size=1554,887 about:blank
     puis « size --viewport 1536x791 » : la fenêtre headless retire une marge à --window-size.
-  Electron : "<appli>.exe" --remote-debugging-port=9229 --user-data-dir=<dossier temporaire>
-  WebView2 : variable WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222 avant le lancement.
+  Electron : "<appli>" --remote-debugging-port=9229 --user-data-dir=<dossier temporaire>, où <appli> est
+    l'exécutable (<appli>.exe sous Windows ; "<App>.app/Contents/MacOS/<exe>" sous macOS, jamais « open -a »).
+  WebView2 (Windows) : variable WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222 avant le lancement.
 
 Détails : le résultat d'eval est écrit tel quel si c'est une chaîne, en JSON sinon ; les promesses sont
 attendues (« await » de premier niveau accepté) ; gros résultats et trames WebSocket fragmentées gérés.
@@ -53,7 +61,7 @@ import struct
 import sys
 import time
 
-VERSION = '1.2'
+VERSION = '1.3'
 GROUP = 'cdp_eval'
 
 
@@ -95,9 +103,10 @@ def fmt_int(n):
 # --------------------------------------------------------------------------------------------------------
 def _no_listener(host, port):
     return ("aucun navigateur ni appli n'écoute sur %s:%s. Lancez la cible avec --remote-debugging-port=%s "
-            "(Chrome/Edge headless : ajoutez --headless=new et --user-data-dir=<dossier temporaire> ; "
-            "Electron : \"<appli>.exe\" --remote-debugging-port=%s --user-data-dir=<temp> ; voir le skill "
-            "capture-bureau), attendez 1 à 2 s ou utilisez --wait-port 10." % (host, port, port, port))
+            "(Chrome/Edge headless : python3 outils/headless.py lancer, ou --headless=new et "
+            "--user-data-dir=<dossier temporaire> ; Electron : \"<appli>\" --remote-debugging-port=%s "
+            "--user-data-dir=<temp>, <appli> = <appli>.exe sous Windows, <App>.app/Contents/MacOS/<exe> sous macOS ; "
+            "voir le skill capture-bureau), attendez 1 à 2 s ou utilisez --wait-port 10." % (host, port, port, port))
 
 
 def http_json(host, port, path, method='GET', timeout=10.0):
@@ -204,8 +213,9 @@ class WebSocket:
         if len(parts) < 2 or parts[1] != '101':
             hint = ''
             if len(parts) > 1 and parts[1] == '403':
-                hint = (" (origine refusée : relancer la cible avec --remote-allow-origins=* "
-                        "ou vérifier qu'aucun proxy ne s'interpose)")
+                hint = (" (origine ou hôte refusé : cdp_eval n'envoie pas d'en-tête Origin ; vérifier --host et "
+                        "qu'aucun proxy ne s'interpose. Jamais --remote-allow-origins=* : toute page web pourrait "
+                        "piloter ce navigateur ; au besoin --remote-allow-origins=http://127.0.0.1:%s)" % port)
             raise CdpError('poignée de main WebSocket refusée : %s%s' % (lines[0], hint))
         headers = {}
         for line in lines[1:]:
@@ -603,6 +613,27 @@ def console_start(cdp, discard_replay):
         cdp.events = [e for e in cdp.events if e.get('method') not in CONSOLE_EVENTS]
 
 
+# Rapports console : ils finissent souvent dans un fichier (--console FICHIER, console --out). On y masque ce qui
+# identifie l'utilisateur ou ouvre un compte : paramètres sensibles d'URL, emails, dossier personnel, clés connues.
+_MASQUES = [
+    (re.compile(r'([?&#;](?:access_token|id_token|refresh_token|token|code|api_?key|key|secret|password|pwd|session'
+                r'|sessionid|sid|auth|signature|sig|email|mail)=)[^&#\s"\'()<>]+', re.I), r'\1•••'),
+    (re.compile(r'[\w.+-]+@[\w-]+(?:\.[\w-]+)+'), '•••@•••'),
+    (re.compile(r'(/Users/|/home/|[A-Za-z]:[\\/]Users[\\/])(?!utilisateur\b)[^/\\\s"\'<>:]+(?=[/\\])'),
+     r'\1utilisateur'),
+    (re.compile(r'\b((?:sk|pk|rk)_(?:live|test)_)[A-Za-z0-9]{6,}'), r'\1•••'),
+    (re.compile(r'\b(?:ghp|gho|ghs|github_pat)_[A-Za-z0-9_]{20,}|\bAKIA[0-9A-Z]{16}\b'), '[clé masquée]'),
+    (re.compile(r'\beyJ[\w-]{10,}\.[\w-]{10,}\.[\w-]{5,}'), '[jeton masqué]'),
+]
+
+
+def _masque(s):
+    s = str(s or '')
+    for rx, rep in _MASQUES:
+        s = rx.sub(rep, s)
+    return s
+
+
 def console_collect(cdp):
     out = []
     for ev in cdp.events:
@@ -625,6 +656,8 @@ def console_collect(cdp):
                                                                   e.get('url') not in str(e.get('text', '')) else ''),
                         'url': e.get('url', ''), 'ligne': (e.get('lineNumber') or 0) + 1 if e.get('lineNumber') is not None else None})
     cdp.events = [e for e in cdp.events if e.get('method') not in CONSOLE_EVENTS]
+    for e in out:
+        e['texte'], e['url'] = _masque(e['texte']), _masque(e['url'])
     return out
 
 
@@ -1116,8 +1149,11 @@ def build_parser():
     p = argparse.ArgumentParser(prog='cdp_eval.py', allow_abbrev=False,
                                 description='Client Chrome DevTools Protocol minimal (Python standard). '
                                             'Plugin copieur-universel.',
-                                epilog='Exemple : py cdp_eval.py --port 9333 eval --target 0 --file capture-kit.js '
-                                       '--expr "__info()" --out info.json')
+                                epilog='Exemple : python3 cdp_eval.py --port 9333 eval --target 0 '
+                                       '--file capture-kit.js --expr "__info()" --out info.json (sous Windows, '
+                                       'py remplace python3). '
+                                       'Navigateur headless sur profil temporaire : python3 headless.py lancer, '
+                                       'puis fermer --profil "<profil noté>" --port N.')
     p.add_argument('--port', type=int, default=9222, help='port de débogage (défaut 9222)')
     p.add_argument('--host', default='127.0.0.1', help='hôte (défaut 127.0.0.1)')
     p.add_argument('--timeout', type=float, default=60.0, help='délai max par commande, en s (défaut 60)')
